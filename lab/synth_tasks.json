@@ -1,0 +1,1802 @@
+[
+ {
+  "schema": "hr",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "How many employees are former (left_date is not NULL)? Return a single number.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM employees WHERE left_date IS NOT NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0000"
+ },
+ {
+  "schema": "hr",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "How many former employees are in each department? Include departments with zero. Return department name and count.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, COUNT(e.id) AS n FROM departments d LEFT JOIN employees e ON e.dept_id = d.id AND e.left_date IS NOT NULL GROUP BY d.name"
+  ],
+  "condition_cols": null,
+  "id": "syn0001"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the average current salary among former employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(AVG(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NOT NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0002"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which department has the highest average current salary among its former employees (current salary = latest effective_from)? Return the department name; on ties the alphabetically first.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT d.name FROM cur JOIN employees e ON e.id = cur.employee_id JOIN departments d ON d.id = e.dept_id WHERE cur.rn = 1 AND e.left_date IS NOT NULL GROUP BY d.name ORDER BY AVG(cur.amount) DESC, d.name LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0003"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2023, counting only departments with at least 3 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2023 GROUP BY d.name HAVING COUNT(*) >= 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0004"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "For each current manager, count their current direct reports. Return the top 1 managers as (manager name, count), ordered by count descending, then manager id ascending.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT m.name, COUNT(*) AS n FROM employees e JOIN employees m ON m.id = e.manager_id WHERE e.left_date IS NULL AND m.left_date IS NULL GROUP BY m.id, m.name ORDER BY n DESC, m.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0005"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "Which former employee has the largest salary increase (current salary with the latest effective_from minus the first salary with the earliest effective_from)? Return employee id and the increase; on ties the lowest id.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH s AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rd, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from ASC) AS ra FROM salaries), c AS (SELECT employee_id, amount FROM s WHERE rd = 1), f AS (SELECT employee_id, amount FROM s WHERE ra = 1) SELECT e.id, c.amount - f.amount AS increase FROM employees e JOIN c ON c.employee_id = e.id JOIN f ON f.employee_id = e.id WHERE e.left_date IS NOT NULL ORDER BY increase DESC, e.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0006"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": true,
+  "q": "Departments form a tree via parent_id with 'Corporate' at the root. For each department directly under Corporate, count the former employees in it and all its descendant departments. Return department name and headcount.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH RECURSIVE t AS (SELECT id, name AS top_name FROM departments WHERE parent_id = (SELECT id FROM departments WHERE name = 'Corporate') UNION ALL SELECT d.id, t.top_name FROM departments d JOIN t ON d.parent_id = t.id) SELECT t.top_name AS name, COUNT(e.id) AS headcount FROM t LEFT JOIN employees e ON e.dept_id = t.id AND e.left_date IS NOT NULL GROUP BY t.top_name"
+  ],
+  "condition_cols": null,
+  "id": "syn0007"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2021-01-01, what percentage left within 730 days of their hire date (left_date - hire_date <= 730)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 730 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2021-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0008"
+ },
+ {
+  "schema": "hr",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "How many employees are current (left_date is NULL)? Return a single number.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM employees WHERE left_date IS NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0009"
+ },
+ {
+  "schema": "hr",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "How many current employees are in each department? Include departments with zero. Return department name and count.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, COUNT(e.id) AS n FROM departments d LEFT JOIN employees e ON e.dept_id = d.id AND e.left_date IS NULL GROUP BY d.name"
+  ],
+  "condition_cols": null,
+  "id": "syn0010"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the highest current salary among current employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(MAX(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0011"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which department has the highest average current salary among its current employees (current salary = latest effective_from)? Return the department name; on ties the alphabetically first.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT d.name FROM cur JOIN employees e ON e.id = cur.employee_id JOIN departments d ON d.id = e.dept_id WHERE cur.rn = 1 AND e.left_date IS NULL GROUP BY d.name ORDER BY AVG(cur.amount) DESC, d.name LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0012"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2020, counting only departments with at least 2 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2020 GROUP BY d.name HAVING COUNT(*) >= 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0013"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "For each current manager, count their current direct reports. Return the top 5 managers as (manager name, count), ordered by count descending, then manager id ascending.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT m.name, COUNT(*) AS n FROM employees e JOIN employees m ON m.id = e.manager_id WHERE e.left_date IS NULL AND m.left_date IS NULL GROUP BY m.id, m.name ORDER BY n DESC, m.id LIMIT 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0014"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "Which current employee has the largest salary increase (current salary with the latest effective_from minus the first salary with the earliest effective_from)? Return employee id and the increase; on ties the lowest id.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH s AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rd, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from ASC) AS ra FROM salaries), c AS (SELECT employee_id, amount FROM s WHERE rd = 1), f AS (SELECT employee_id, amount FROM s WHERE ra = 1) SELECT e.id, c.amount - f.amount AS increase FROM employees e JOIN c ON c.employee_id = e.id JOIN f ON f.employee_id = e.id WHERE e.left_date IS NULL ORDER BY increase DESC, e.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0015"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": true,
+  "q": "Departments form a tree via parent_id with 'Corporate' at the root. For each department directly under Corporate, count the current employees in it and all its descendant departments. Return department name and headcount.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH RECURSIVE t AS (SELECT id, name AS top_name FROM departments WHERE parent_id = (SELECT id FROM departments WHERE name = 'Corporate') UNION ALL SELECT d.id, t.top_name FROM departments d JOIN t ON d.parent_id = t.id) SELECT t.top_name AS name, COUNT(e.id) AS headcount FROM t LEFT JOIN employees e ON e.dept_id = t.id AND e.left_date IS NULL GROUP BY t.top_name"
+  ],
+  "condition_cols": null,
+  "id": "syn0016"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2023-01-01, what percentage left within 730 days of their hire date (left_date - hire_date <= 730)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 730 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2023-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0017"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "How many orders have status 'cancelled'? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders WHERE status = 'cancelled'"
+  ],
+  "condition_cols": null,
+  "id": "syn0018"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the number of order lines per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0019"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 3 customers have the highest total revenue from 'cancelled' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'cancelled' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0020"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'cancelled' orders contain at least one order line with quantity 5? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'cancelled' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 5)"
+  ],
+  "condition_cols": null,
+  "id": "syn0021"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their first 'cancelled' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MIN(order_date) AS d FROM orders WHERE status = 'cancelled' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0022"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'cancelled' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 10 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'cancelled' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 10"
+  ],
+  "condition_cols": null,
+  "id": "syn0023"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each product category, which product earned the most revenue from 'cancelled' orders (sum of quantity * order_items.unit_price)? Return category and product name; on ties within a category pick the lowest product id.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH r AS (SELECT p.category, p.id, p.name, SUM(oi.quantity * oi.unit_price) AS rev FROM products p JOIN order_items oi ON oi.product_id = p.id JOIN orders o ON o.id = oi.order_id WHERE o.status = 'cancelled' GROUP BY p.category, p.id, p.name), k AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY category ORDER BY rev DESC, id) AS rn FROM r) SELECT category, name FROM k WHERE rn = 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0024"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'cancelled' order, what percentage have 3 or more 'cancelled' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'cancelled' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 3 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0025"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "How many orders have status 'refunded'? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders WHERE status = 'refunded'"
+  ],
+  "condition_cols": null,
+  "id": "syn0026"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the total revenue (sum of quantity * order_items.unit_price) per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0027"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 2 customers have the highest total revenue from 'refunded' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'refunded' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0028"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their latest 'refunded' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MAX(order_date) AS d FROM orders WHERE status = 'refunded' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0029"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each product category, which product earned the most revenue from 'refunded' orders (sum of quantity * order_items.unit_price)? Return category and product name; on ties within a category pick the lowest product id.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH r AS (SELECT p.category, p.id, p.name, SUM(oi.quantity * oi.unit_price) AS rev FROM products p JOIN order_items oi ON oi.product_id = p.id JOIN orders o ON o.id = oi.order_id WHERE o.status = 'refunded' GROUP BY p.category, p.id, p.name), k AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY category ORDER BY rev DESC, id) AS rn FROM r) SELECT category, name FROM k WHERE rn = 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0030"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'refunded' order, what percentage have 3 or more 'refunded' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'refunded' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 3 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0031"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the total revenue (sum of quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0032"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 3 customers have the highest total revenue from 'refunded' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'refunded' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0033"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'refunded' orders contain at least one order line with quantity 5? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'refunded' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 5)"
+  ],
+  "condition_cols": null,
+  "id": "syn0034"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their first 'refunded' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MIN(order_date) AS d FROM orders WHERE status = 'refunded' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0035"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'refunded' order within 90 days (inclusive) of their first 'refunded' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'refunded'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 90"
+  ],
+  "condition_cols": null,
+  "id": "syn0036"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "How many orders have status 'paid'? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders WHERE status = 'paid'"
+  ],
+  "condition_cols": null,
+  "id": "syn0037"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'paid' only, what is the number of order lines per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0038"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 1 customer have the highest total revenue from 'paid' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0039"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'paid' orders contain at least one order line with quantity 0? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'paid' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 0)"
+  ],
+  "condition_cols": null,
+  "id": "syn0040"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their latest 'paid' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MAX(order_date) AS d FROM orders WHERE status = 'paid' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0041"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'paid' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 5 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0042"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each product category, which product earned the most revenue from 'paid' orders (sum of quantity * order_items.unit_price)? Return category and product name; on ties within a category pick the lowest product id.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH r AS (SELECT p.category, p.id, p.name, SUM(oi.quantity * oi.unit_price) AS rev FROM products p JOIN order_items oi ON oi.product_id = p.id JOIN orders o ON o.id = oi.order_id WHERE o.status = 'paid' GROUP BY p.category, p.id, p.name), k AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY category ORDER BY rev DESC, id) AS rn FROM r) SELECT category, name FROM k WHERE rn = 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0043"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their third 'paid' order within 30 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 3) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 30"
+  ],
+  "condition_cols": null,
+  "id": "syn0044"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'paid' order, what percentage have 4 or more 'paid' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'paid' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 4 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0045"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the lowest current salary among former employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(MIN(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NOT NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0046"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2020, counting only departments with at least 3 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2020 GROUP BY d.name HAVING COUNT(*) >= 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0047"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "For each current manager, count their current direct reports. Return the top 3 managers as (manager name, count), ordered by count descending, then manager id ascending.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT m.name, COUNT(*) AS n FROM employees e JOIN employees m ON m.id = e.manager_id WHERE e.left_date IS NULL AND m.left_date IS NULL GROUP BY m.id, m.name ORDER BY n DESC, m.id LIMIT 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0048"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 1 customer have the highest total revenue from 'refunded' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'refunded' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0049"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2022, counting only departments with at least 3 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2022 GROUP BY d.name HAVING COUNT(*) >= 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0050"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2023-01-01, what percentage left within 180 days of their hire date (left_date - hire_date <= 180)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 180 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2023-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0051"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "How many 'purchase' events are there per session device? Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT s.device, COUNT(*) AS n FROM events e JOIN sessions s ON s.id = e.session_id WHERE e.kind = 'purchase' GROUP BY s.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0052"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "What is the total purchase amount (sum of value over 'purchase' events) for users on the 'team' plan? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT COALESCE(SUM(e.value), 0) AS total FROM events e JOIN sessions s ON s.id = e.session_id JOIN users u ON u.id = s.user_id WHERE e.kind = 'purchase' AND u.plan = 'team'"
+  ],
+  "condition_cols": null,
+  "id": "syn0053"
+ },
+ {
+  "schema": "events",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the average duration in minutes of 'web' sessions that have an ended_at? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(AVG(EXTRACT(epoch FROM (ended_at - started_at)) / 60.0), 2) AS m FROM sessions WHERE ended_at IS NOT NULL AND device = 'web'"
+  ],
+  "condition_cols": null,
+  "id": "syn0054"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each user with at least one session, take the device of their earliest session (earliest started_at, then lowest session id). Count 'team' users by that first device. Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH f AS (SELECT s.user_id, s.device, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.started_at, s.id) AS rn FROM sessions s) SELECT f.device, COUNT(*) AS n FROM f JOIN users u ON u.id = f.user_id WHERE f.rn = 1 AND u.plan = 'team' GROUP BY f.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0055"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'web' sessions contain at least one 'purchase' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'purchase') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'web'"
+  ],
+  "condition_cols": null,
+  "id": "syn0056"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'team' users made their first 'purchase' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'purchase' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'purchase') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'team'"
+  ],
+  "condition_cols": null,
+  "id": "syn0057"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Bucket sessions by the month they started (DATE_TRUNC('month', started_at)). Which month had the most distinct active users? Return the month start as a date and the user count; on ties the earliest month.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT CAST(DATE_TRUNC('month', started_at) AS DATE) AS b, COUNT(DISTINCT user_id) AS n FROM sessions GROUP BY b ORDER BY n DESC, b LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0058"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'paid' only, what is the average line value (quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, AVG(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0059"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 2 customers have the highest total revenue from 'paid' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0060"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'paid' orders contain at least one order line with quantity 1? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'paid' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 1)"
+  ],
+  "condition_cols": null,
+  "id": "syn0061"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their first 'paid' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MIN(order_date) AS d FROM orders WHERE status = 'paid' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0062"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'paid' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 10 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 10"
+  ],
+  "condition_cols": null,
+  "id": "syn0063"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'paid' order within 30 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 30"
+  ],
+  "condition_cols": null,
+  "id": "syn0064"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'paid' order, what percentage have 3 or more 'paid' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'paid' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 3 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0065"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "How many 'click' events are there per session device? Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT s.device, COUNT(*) AS n FROM events e JOIN sessions s ON s.id = e.session_id WHERE e.kind = 'click' GROUP BY s.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0066"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "What is the total purchase amount (sum of value over 'purchase' events) for users on the 'free' plan? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT COALESCE(SUM(e.value), 0) AS total FROM events e JOIN sessions s ON s.id = e.session_id JOIN users u ON u.id = s.user_id WHERE e.kind = 'purchase' AND u.plan = 'free'"
+  ],
+  "condition_cols": null,
+  "id": "syn0067"
+ },
+ {
+  "schema": "events",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the average duration in minutes of 'ios' sessions that have an ended_at? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(AVG(EXTRACT(epoch FROM (ended_at - started_at)) / 60.0), 2) AS m FROM sessions WHERE ended_at IS NOT NULL AND device = 'ios'"
+  ],
+  "condition_cols": null,
+  "id": "syn0068"
+ },
+ {
+  "schema": "events",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many users on the 'free' plan have no sessions at all? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM users u WHERE u.plan = 'free' AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)"
+  ],
+  "condition_cols": null,
+  "id": "syn0069"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each user with at least one session, take the device of their earliest session (earliest started_at, then lowest session id). Count 'free' users by that first device. Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH f AS (SELECT s.user_id, s.device, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.started_at, s.id) AS rn FROM sessions s) SELECT f.device, COUNT(*) AS n FROM f JOIN users u ON u.id = f.user_id WHERE f.rn = 1 AND u.plan = 'free' GROUP BY f.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0070"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'ios' sessions contain at least one 'click' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'click') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'ios'"
+  ],
+  "condition_cols": null,
+  "id": "syn0071"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'free' users made their first 'click' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'click' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'click') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'free'"
+  ],
+  "condition_cols": null,
+  "id": "syn0072"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": false,
+  "q": "What is the total purchase amount (sum of value over 'purchase' events) for users on the 'pro' plan? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT COALESCE(SUM(e.value), 0) AS total FROM events e JOIN sessions s ON s.id = e.session_id JOIN users u ON u.id = s.user_id WHERE e.kind = 'purchase' AND u.plan = 'pro'"
+  ],
+  "condition_cols": null,
+  "id": "syn0073"
+ },
+ {
+  "schema": "events",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many users on the 'pro' plan have no sessions at all? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM users u WHERE u.plan = 'pro' AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)"
+  ],
+  "condition_cols": null,
+  "id": "syn0074"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each user with at least one session, take the device of their earliest session (earliest started_at, then lowest session id). Count 'pro' users by that first device. Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH f AS (SELECT s.user_id, s.device, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.started_at, s.id) AS rn FROM sessions s) SELECT f.device, COUNT(*) AS n FROM f JOIN users u ON u.id = f.user_id WHERE f.rn = 1 AND u.plan = 'pro' GROUP BY f.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0075"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'ios' sessions contain at least one 'purchase' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'purchase') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'ios'"
+  ],
+  "condition_cols": null,
+  "id": "syn0076"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What is the median number of events per session, over sessions that have at least one event? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH c AS (SELECT session_id, COUNT(*) AS n FROM events GROUP BY session_id) SELECT MEDIAN(n) AS v FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0077"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'pro' users made their first 'purchase' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'purchase' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'purchase') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'pro'"
+  ],
+  "condition_cols": null,
+  "id": "syn0078"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Bucket sessions by the week they started (DATE_TRUNC('week', started_at)). Which week had the most distinct active users? Return the week start as a date and the user count; on ties the earliest week.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT CAST(DATE_TRUNC('week', started_at) AS DATE) AS b, COUNT(DISTINCT user_id) AS n FROM sessions GROUP BY b ORDER BY n DESC, b LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0079"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the average line value (quantity * order_items.unit_price) per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, AVG(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0080"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'refunded' orders contain at least one order line with quantity 1? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'refunded' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 1)"
+  ],
+  "condition_cols": null,
+  "id": "syn0081"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'refunded' order within 14 days (inclusive) of their first 'refunded' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'refunded'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 14"
+  ],
+  "condition_cols": null,
+  "id": "syn0082"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the number of order lines per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0083"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'refunded' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 5 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'refunded' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0084"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'refunded' order within 30 days (inclusive) of their first 'refunded' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'refunded'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 30"
+  ],
+  "condition_cols": null,
+  "id": "syn0085"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 2 customers have the highest total revenue from 'cancelled' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'cancelled' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0086"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'cancelled' orders contain at least one order line with quantity 1? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'cancelled' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 1)"
+  ],
+  "condition_cols": null,
+  "id": "syn0087"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'cancelled' order within 90 days (inclusive) of their first 'cancelled' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'cancelled'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 90"
+  ],
+  "condition_cols": null,
+  "id": "syn0088"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'team' users made their first 'click' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'click' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'click') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'team'"
+  ],
+  "condition_cols": null,
+  "id": "syn0089"
+ },
+ {
+  "schema": "events",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "How many 'view' events are there per session device? Return device and count.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT s.device, COUNT(*) AS n FROM events e JOIN sessions s ON s.id = e.session_id WHERE e.kind = 'view' GROUP BY s.device"
+  ],
+  "condition_cols": null,
+  "id": "syn0090"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'web' sessions contain at least one 'view' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'view') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'web'"
+  ],
+  "condition_cols": null,
+  "id": "syn0091"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'team' users made their first 'view' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'view' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'view') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'team'"
+  ],
+  "condition_cols": null,
+  "id": "syn0092"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'paid' only, what is the number of order lines per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0093"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 3 customers have the highest total revenue from 'paid' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0094"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'paid' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 15 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'paid' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 15"
+  ],
+  "condition_cols": null,
+  "id": "syn0095"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'paid' order within 90 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 90"
+  ],
+  "condition_cols": null,
+  "id": "syn0096"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What is the average number of events per session, over sessions that have at least one event? Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH c AS (SELECT session_id, COUNT(*) AS n FROM events GROUP BY session_id) SELECT AVG(n) AS v FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0097"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'free' users made their first 'purchase' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'purchase' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'purchase') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'free'"
+  ],
+  "condition_cols": null,
+  "id": "syn0098"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the total revenue (sum of quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0099"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "Which 1 customer have the highest total revenue from 'cancelled' orders (sum of quantity * order_items.unit_price)? Return customer id and total, highest first; on ties the lower id first.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.id, SUM(oi.quantity * oi.unit_price) AS total FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'cancelled' GROUP BY c.id ORDER BY total DESC, c.id LIMIT 1"
+  ],
+  "condition_cols": null,
+  "id": "syn0100"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average 'cancelled' order value (an order's value is the sum of quantity * order_items.unit_price over its lines) per customer country, only for countries with at least 5 such orders and excluding NULL countries? Return country and average value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH ov AS (SELECT o.id, c.country, SUM(oi.quantity * oi.unit_price) AS v FROM orders o JOIN customers c ON c.id = o.customer_id JOIN order_items oi ON oi.order_id = o.id WHERE o.status = 'cancelled' AND c.country IS NOT NULL GROUP BY o.id, c.country) SELECT country, AVG(v) AS avg_value FROM ov GROUP BY country HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0101"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'cancelled' order, what percentage have 2 or more 'cancelled' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'cancelled' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 2 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0102"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2021-01-01, what percentage left within 180 days of their hire date (left_date - hire_date <= 180)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 180 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2021-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0103"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2023, counting only departments with at least 2 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2023 GROUP BY d.name HAVING COUNT(*) >= 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0104"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2022-01-01, what percentage left within 365 days of their hire date (left_date - hire_date <= 365)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 365 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2022-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0105"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'paid' orders contain at least one order line with quantity 5? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'paid' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 5)"
+  ],
+  "condition_cols": null,
+  "id": "syn0106"
+ },
+ {
+  "schema": "events",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the average duration in minutes of 'android' sessions that have an ended_at? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(AVG(EXTRACT(epoch FROM (ended_at - started_at)) / 60.0), 2) AS m FROM sessions WHERE ended_at IS NOT NULL AND device = 'android'"
+  ],
+  "condition_cols": null,
+  "id": "syn0107"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'android' sessions contain at least one 'purchase' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'purchase') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'android'"
+  ],
+  "condition_cols": null,
+  "id": "syn0108"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the average line value (quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, AVG(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0109"
+ },
+ {
+  "schema": "shop",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "For each customer, find the date of their latest 'cancelled' order. Then count customers by the calendar year of that date. Return year and count.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH f AS (SELECT customer_id, MAX(order_date) AS d FROM orders WHERE status = 'cancelled' GROUP BY customer_id) SELECT EXTRACT(year FROM d) AS yr, COUNT(*) AS n FROM f GROUP BY yr"
+  ],
+  "condition_cols": null,
+  "id": "syn0110"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the average current salary among current employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(AVG(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0111"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2021-01-01, what percentage left within 365 days of their hire date (left_date - hire_date <= 365)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 365 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2021-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0112"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the highest current salary among former employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(MAX(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NOT NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0113"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2022-01-01, what percentage left within 730 days of their hire date (left_date - hire_date <= 730)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 730 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2022-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0114"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their third 'paid' order within 60 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 3) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 60"
+  ],
+  "condition_cols": null,
+  "id": "syn0115"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'paid' order, what percentage have 2 or more 'paid' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'paid' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 2 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0116"
+ },
+ {
+  "schema": "hr",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "What is the lowest current salary among current employees? Current salary = the salary row with the latest effective_from. Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "WITH cur AS (SELECT employee_id, amount, ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY effective_from DESC) AS rn FROM salaries) SELECT ROUND(MIN(cur.amount), 2) AS v FROM cur JOIN employees e ON e.id = cur.employee_id WHERE cur.rn = 1 AND e.left_date IS NULL"
+  ],
+  "condition_cols": null,
+  "id": "syn0117"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2021, counting only departments with at least 5 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2021 GROUP BY d.name HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0118"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2022-01-01, what percentage left within 180 days of their hire date (left_date - hire_date <= 180)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 180 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2022-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0119"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'android' sessions contain at least one 'view' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'view') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'android'"
+  ],
+  "condition_cols": null,
+  "id": "syn0120"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2023, counting only departments with at least 5 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2023 GROUP BY d.name HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0121"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'free' users made their first 'view' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'view' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'view') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'free'"
+  ],
+  "condition_cols": null,
+  "id": "syn0122"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among customers with at least one 'refunded' order, what percentage have 2 or more 'refunded' orders? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH c AS (SELECT customer_id, COUNT(*) AS n FROM orders WHERE status = 'refunded' GROUP BY customer_id) SELECT ROUND(100.0 * SUM(CASE WHEN n >= 2 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM c"
+  ],
+  "condition_cols": null,
+  "id": "syn0123"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'web' sessions contain at least one 'click' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'click') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'web'"
+  ],
+  "condition_cols": null,
+  "id": "syn0124"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'pro' users made their first 'click' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'click' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'click') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'pro'"
+  ],
+  "condition_cols": null,
+  "id": "syn0125"
+ },
+ {
+  "schema": "hr",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "Among employees hired before 2023-01-01, what percentage left within 365 days of their hire date (left_date - hire_date <= 365)? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN left_date IS NOT NULL AND left_date - hire_date <= 365 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM employees WHERE hire_date < DATE '2023-01-01'"
+  ],
+  "condition_cols": null,
+  "id": "syn0126"
+ },
+ {
+  "schema": "events",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many 'pro' users made their first 'view' event in a session that was not their first session? Order sessions by started_at then session id; a user's first 'view' event is their earliest such event by ts. Return a single number.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "WITH s AS (SELECT id, user_id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at, id) AS rn FROM sessions), p AS (SELECT s.user_id, s.rn, ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY e.ts) AS prn FROM events e JOIN s ON s.id = e.session_id WHERE e.kind = 'view') SELECT COUNT(*) AS n FROM p JOIN users u ON u.id = p.user_id WHERE p.prn = 1 AND p.rn > 1 AND u.plan = 'pro'"
+  ],
+  "condition_cols": null,
+  "id": "syn0127"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'paid' only, what is the total revenue (sum of quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0128"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2022, counting only departments with at least 5 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2022 GROUP BY d.name HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0129"
+ },
+ {
+  "schema": "shop",
+  "hops": 2,
+  "ignore_order": false,
+  "q": "How many 'cancelled' orders contain at least one order line with quantity 0? Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT COUNT(*) AS n FROM orders o WHERE o.status = 'cancelled' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.quantity = 0)"
+  ],
+  "condition_cols": null,
+  "id": "syn0130"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2022, counting only departments with at least 2 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2022 GROUP BY d.name HAVING COUNT(*) >= 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0131"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'cancelled' order within 60 days (inclusive) of their first 'cancelled' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'cancelled'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 60"
+  ],
+  "condition_cols": null,
+  "id": "syn0132"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2021, counting only departments with at least 3 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2021 GROUP BY d.name HAVING COUNT(*) >= 3"
+  ],
+  "condition_cols": null,
+  "id": "syn0133"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2020, counting only departments with at least 5 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2020 GROUP BY d.name HAVING COUNT(*) >= 5"
+  ],
+  "condition_cols": null,
+  "id": "syn0134"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the total revenue (sum of quantity * order_items.unit_price) per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0135"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'cancelled' order within 30 days (inclusive) of their first 'cancelled' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'cancelled'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 30"
+  ],
+  "condition_cols": null,
+  "id": "syn0136"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the number of order lines per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0137"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'refunded' only, what is the average line value (quantity * order_items.unit_price) per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, AVG(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'refunded' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0138"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their third 'paid' order within 14 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 3) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 14"
+  ],
+  "condition_cols": null,
+  "id": "syn0139"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'ios' sessions contain at least one 'view' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'view') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'ios'"
+  ],
+  "condition_cols": null,
+  "id": "syn0140"
+ },
+ {
+  "schema": "hr",
+  "hops": 3,
+  "ignore_order": true,
+  "q": "What is the average review score per department for review_year 2021, counting only departments with at least 2 reviews that year? Return department name and average score.",
+  "ddl": "\nCREATE TABLE departments (id INTEGER PRIMARY KEY, name VARCHAR, parent_id INTEGER);\n-- parent_id references departments.id; NULL for top-level departments\nCREATE TABLE employees (id INTEGER PRIMARY KEY, name VARCHAR, dept_id INTEGER, manager_id INTEGER, hire_date DATE, left_date DATE);\n-- left_date is NULL for current employees; manager_id references employees.id\nCREATE TABLE salaries (employee_id INTEGER, effective_from DATE, amount DECIMAL(12,2));\n-- one row per salary change; the current salary is the row with the latest effective_from\nCREATE TABLE reviews (employee_id INTEGER, review_year INTEGER, score INTEGER);\n-- score 1..5; an employee may have no review in a given year\n",
+  "gold": [
+   "SELECT d.name, AVG(r.score) AS avg_score FROM reviews r JOIN employees e ON e.id = r.employee_id JOIN departments d ON d.id = e.dept_id WHERE r.review_year = 2021 GROUP BY d.name HAVING COUNT(*) >= 2"
+  ],
+  "condition_cols": null,
+  "id": "syn0141"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'paid' order within 14 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 14"
+  ],
+  "condition_cols": null,
+  "id": "syn0142"
+ },
+ {
+  "schema": "events",
+  "hops": 3,
+  "ignore_order": false,
+  "q": "What percentage of 'android' sessions contain at least one 'click' event? Return a single number rounded to 2 decimal places.",
+  "ddl": "\nCREATE TABLE users (id INTEGER PRIMARY KEY, plan VARCHAR, created_at TIMESTAMP);\n-- plan is one of 'free', 'pro', 'team'\nCREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, started_at TIMESTAMP, ended_at TIMESTAMP, device VARCHAR);\n-- ended_at is NULL for sessions that never closed cleanly\nCREATE TABLE events (session_id INTEGER, ts TIMESTAMP, kind VARCHAR, value DOUBLE);\n-- kind is one of 'view', 'click', 'purchase'; value is the purchase amount for 'purchase' and NULL otherwise\n",
+  "gold": [
+   "SELECT ROUND(100.0 * SUM(CASE WHEN EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND e.kind = 'click') THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct FROM sessions s WHERE s.device = 'android'"
+  ],
+  "condition_cols": null,
+  "id": "syn0143"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'cancelled' order within 14 days (inclusive) of their first 'cancelled' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'cancelled'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 14"
+  ],
+  "condition_cols": null,
+  "id": "syn0144"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'paid' only, what is the total revenue (sum of quantity * order_items.unit_price) per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, SUM(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0145"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'paid' order within 60 days (inclusive) of their first 'paid' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'paid'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 60"
+  ],
+  "condition_cols": null,
+  "id": "syn0146"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the number of order lines per product category? Return category and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT p.category, COUNT(*) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' GROUP BY p.category"
+  ],
+  "condition_cols": null,
+  "id": "syn0147"
+ },
+ {
+  "schema": "shop",
+  "hops": 1,
+  "ignore_order": true,
+  "q": "For orders with status 'cancelled' only, what is the average line value (quantity * order_items.unit_price) per customer country (NULL countries excluded)? Return country and the value.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "SELECT c.country, AVG(oi.quantity * oi.unit_price) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN customers c ON c.id = o.customer_id WHERE o.status = 'cancelled' AND c.country IS NOT NULL GROUP BY c.country"
+  ],
+  "condition_cols": null,
+  "id": "syn0148"
+ },
+ {
+  "schema": "shop",
+  "hops": 4,
+  "ignore_order": false,
+  "q": "How many customers placed their second 'refunded' order within 60 days (inclusive) of their first 'refunded' order? Order by order_date, then order id, to rank orders. Return a single number.",
+  "ddl": "\nCREATE TABLE customers (id INTEGER PRIMARY KEY, name VARCHAR, country VARCHAR, signup_date DATE);\nCREATE TABLE products  (id INTEGER PRIMARY KEY, name VARCHAR, category VARCHAR, unit_price DECIMAL(10,2));\nCREATE TABLE orders    (id INTEGER PRIMARY KEY, customer_id INTEGER, order_date DATE, status VARCHAR);\n-- status is one of 'paid', 'refunded', 'cancelled'\nCREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, unit_price DECIMAL(10,2));\n-- unit_price on order_items is the price at time of sale and may differ from products.unit_price\n",
+  "gold": [
+   "WITH s AS (SELECT customer_id, order_date, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date, id) AS rn FROM orders WHERE status = 'refunded'), f AS (SELECT customer_id, order_date AS d1 FROM s WHERE rn = 1), g AS (SELECT customer_id, order_date AS d2 FROM s WHERE rn = 2) SELECT COUNT(*) AS n FROM f JOIN g USING (customer_id) WHERE d2 - d1 <= 60"
+  ],
+  "condition_cols": null,
+  "id": "syn0149"
+ }
+]
