@@ -33,9 +33,15 @@ def main():
     ap.add_argument("--tasks", default="")
     ap.add_argument("--seeds", default=",".join(map(str, SEEDS)))
     ap.add_argument("--tag", default=time.strftime("%Y%m%d-%H%M%S"))
+    ap.add_argument("--taskfile", default="", help="JSON list of tasks (e.g. lab/synth_tasks.json) instead of the fixed set")
+    ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
     a = ap.parse_args()
     ids = [s for s in a.tasks.split(",") if s]
-    tset = [t for t in tasks.TASKS if not ids or t["id"] in ids]
+    pool = json.load(open(a.taskfile)) if a.taskfile else tasks.TASKS
+    tset = [t for t in pool if not ids or t["id"] in ids]
+    if a.sample:
+        import random
+        tset = random.Random(0).sample(tset, min(a.sample, len(tset)))
     seeds = [int(s) for s in a.seeds.split(",")]
     Path("runs").mkdir(exist_ok=True)
     jl = Path(f"runs/{a.tag}.jsonl")
@@ -71,7 +77,14 @@ def main():
         "mean_turns": round(sum(e["turns"] for e in eps) / n, 2),
     }
     Path(f"runs/{a.tag}.json").write_text(json.dumps({"summary": summary, "episodes": eps}, indent=1, default=str))
+    per_task = {}
+    for e in eps:
+        per_task.setdefault(e["task"], []).append(e["pass"])
+    zones = Counter("learnable" if 0 < sum(v) < len(v) else ("saturated" if all(v) else "unsolved") for v in per_task.values() if len(v) > 1)
+    summary["zones"] = dict(zones)
+    summary["learnable_share"] = round(zones["learnable"] / max(1, sum(zones.values())), 4)
     print("METRIC exec_acc", summary["exec_acc"])
+    print("METRIC learnable_share", summary["learnable_share"])
     print(json.dumps(summary, indent=1))
 
 
