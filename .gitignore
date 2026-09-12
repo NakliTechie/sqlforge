@@ -1,0 +1,10 @@
+.DS_Store
+Thumbs.db
+*.swp
+plan/
+__pycache__/
+.venv/
+*.safetensors
+*.gguf
+checkpoints/
+runs/
