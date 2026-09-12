@@ -1,0 +1,11 @@
+[project]
+name = "sqlforge"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5.5",
+    "requests>=2.34.2",
+    "sqlfluff>=4.3.0",
+    "sqlglot>=30.18.0",
+]

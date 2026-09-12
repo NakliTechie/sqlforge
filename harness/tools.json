@@ -1,0 +1,8 @@
+[
+  {"type": "function", "function": {"name": "run_sql",
+    "description": "Run a DuckDB SQL query against the database and return up to 20 rows of the result.",
+    "parameters": {"type": "object", "properties": {"sql": {"type": "string", "description": "The SQL to run"}}, "required": ["sql"]}}},
+  {"type": "function", "function": {"name": "submit",
+    "description": "Submit the single final SQL query that answers the question. Ends the task.",
+    "parameters": {"type": "object", "properties": {"sql": {"type": "string", "description": "The final SQL query"}}, "required": ["sql"]}}}
+]
