@@ -36,9 +36,13 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
     turns, n_run_sql, submitted, via = 0, 0, None, None
     while turns < max_turns:
         turns += 1
-        r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
-                                        "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx}},
-                          timeout=600)
+        try:
+            r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
+                                            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx}},
+                              timeout=600)
+        except requests.exceptions.RequestException as e:
+            return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
+                    "final_text": f"request error: {type(e).__name__}"}
         if r.status_code != 200:
             r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
                                             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx}},

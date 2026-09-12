@@ -37,10 +37,15 @@ def main():
     ids = [s for s in a.tasks.split(",") if s]
     tset = [t for t in tasks.TASKS if not ids or t["id"] in ids]
     seeds = [int(s) for s in a.seeds.split(",")]
-    eps = []
+    Path("runs").mkdir(exist_ok=True)
+    jl = Path(f"runs/{a.tag}.jsonl")
+    eps = [json.loads(l) for l in jl.read_text().splitlines() if l.strip()] if jl.exists() else []
+    done = {(e["task"], e["seed"]) for e in eps}
     t0 = time.time()
     for t in tset:
         for seed in seeds:
+            if (t["id"], seed) in done:
+                continue
             ts = time.time()
             ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=MODEL, seed=seed,
                              max_turns=MAX_TURNS, num_ctx=NUM_CTX)
@@ -51,6 +56,8 @@ def main():
                    "sql": sql, **{k: ep[k] for k in ("via", "turns", "n_run_sql", "hit_cap", "final_text")},
                    "secs": round(time.time() - ts, 1)}
             eps.append(row)
+            with jl.open("a") as f:
+                f.write(json.dumps(row, default=str) + "\n")
             print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
     n = len(eps)
     summary = {
@@ -59,10 +66,10 @@ def main():
         "turn_cap_rate": round(sum(e["hit_cap"] for e in eps) / n, 4),
         "no_submit_rate": round(sum(e["sql"] is None for e in eps) / n, 4),
         "gate_fail_counts": dict(Counter(e["gate"] for e in eps if not e["pass"])),
+        "error_count": sum(e.get("via") == "error" for e in eps),
         "exec_acc_by_hops": {h: round(sum(e["pass"] for e in eps if e["hops"] == h) / max(1, sum(1 for e in eps if e["hops"] == h)), 3) for h in sorted({e["hops"] for e in eps})},
         "mean_turns": round(sum(e["turns"] for e in eps) / n, 2),
     }
-    Path("runs").mkdir(exist_ok=True)
     Path(f"runs/{a.tag}.json").write_text(json.dumps({"summary": summary, "episodes": eps}, indent=1, default=str))
     print("METRIC exec_acc", summary["exec_acc"])
     print(json.dumps(summary, indent=1))
