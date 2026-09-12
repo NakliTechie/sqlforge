@@ -1,0 +1,21 @@
+# One GRPO climb on a single spot GPU. NOT launched — spend decision is Chirag's.
+#   sky launch -c sqlforge-climb infra/skypilot-climb.yaml --env HF_TOKEN=... 
+# Uses the ~/Code/infra/aws SkyPilot IAM user + <project>=true tag convention.
+name: sqlforge-climb
+resources:
+  cloud: aws
+  accelerators: {A100-80GB: 1, H100: 1}
+  use_spot: true
+  disk_size: 200
+  labels: {sqlforge: "true"}
+workdir: .
+setup: |
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv sync
+  uv pip install flash-linear-attention causal-conv1d  # optimized kernels for Qwen3.5's gated-delta layers
+run: |
+  export PATH="$HOME/.local/bin:$PATH"
+  uv run python -m train.run_train --model Qwen/Qwen3.5-4B --tasks lab/synth_tasks.json \
+    --steps 200 --tasks-per-step 8 --group 8 --max-turns 25 --device cuda --dtype bf16 \
+    --lora-r 32 --lr 1e-5 --save-every 25 --tag climb1 2>&1 | tee runs/climb1.log
