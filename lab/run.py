@@ -33,6 +33,7 @@ def main():
     ap.add_argument("--tasks", default="")
     ap.add_argument("--seeds", default=",".join(map(str, SEEDS)))
     ap.add_argument("--tag", default=time.strftime("%Y%m%d-%H%M%S"))
+    ap.add_argument("--model", default=MODEL)
     ap.add_argument("--taskfile", default="", help="JSON list of tasks (e.g. lab/synth_tasks.json) instead of the fixed set")
     ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
     a = ap.parse_args()
@@ -53,7 +54,7 @@ def main():
             if (t["id"], seed) in done:
                 continue
             ts = time.time()
-            ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=MODEL, seed=seed,
+            ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
                              max_turns=MAX_TURNS, num_ctx=NUM_CTX)
             sql = ep["submitted_sql"]
             res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
@@ -67,7 +68,7 @@ def main():
             print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
     n = len(eps)
     summary = {
-        "tag": a.tag, "model": MODEL, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
+        "tag": a.tag, "model": a.model, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
         "exec_acc": round(sum(e["pass"] for e in eps) / n, 4),
         "turn_cap_rate": round(sum(e["hit_cap"] for e in eps) / n, 4),
         "no_submit_rate": round(sum(e["sql"] is None for e in eps) / n, 4),
