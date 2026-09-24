@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 import torch
 
+from harness.nudge import budget_note
+
 QWEN_CALL = re.compile(r"<tool_call>\s*<function=([^>]+)>(.*?)</function>\s*</tool_call>", re.S)
 QWEN_PARAM = re.compile(r"<parameter=([^>]+)>\n?(.*?)\n?</parameter>", re.S)
 
@@ -88,7 +90,7 @@ def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, 
                 obs_parts.append(_fmt(cols, rows, err))
             else:
                 obs_parts.append(f"ERROR: unknown tool {c['name']}")
-        tr.segments.append((tool_response_chunk(tok, "\n\n".join(obs_parts)), False))
+        tr.segments.append((tool_response_chunk(tok, "\n\n".join(obs_parts) + budget_note(max_turns - tr.turns)), False))
     tr.hit_cap = True
     return tr
 

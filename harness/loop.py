@@ -6,10 +6,13 @@ from pathlib import Path
 
 import requests
 
+from harness.nudge import budget_note
+
 HERE = Path(__file__).parent
 OLLAMA = "http://localhost:11434/api/chat"
 OBS_ROWS = 20
 OBS_CHARS = 1500
+NUM_PREDICT = 2048  # per-turn generation cap; a runaway turn ends as a plain text turn instead of a 600 s timeout
 
 
 def _fmt_obs(cols, rows, err):
@@ -38,14 +41,14 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
         turns += 1
         try:
             r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
-                                            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx}},
+                                            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx, "num_predict": NUM_PREDICT}},
                               timeout=600)
         except requests.exceptions.RequestException as e:
             return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
                     "final_text": f"request error: {type(e).__name__}"}
         if r.status_code != 200:
             r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
-                                            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx}},
+                                            "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx, "num_predict": NUM_PREDICT}},
                               timeout=600)
             if r.status_code != 200:
                 return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
@@ -56,7 +59,7 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
         if not calls:
             submitted, via = _sql_from_text(msg.get("content") or ""), "text"
             break
-        done = False
+        done, obs_parts = False, []
         for c in calls:
             fn, args = c["function"]["name"], c["function"].get("arguments") or {}
             sql = args.get("sql", "") if isinstance(args, dict) else ""
@@ -66,11 +69,12 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
             if fn == "run_sql":
                 n_run_sql += 1
                 cols, rows, err = run_sql(sql)
-                msgs.append({"role": "tool", "content": _fmt_obs(cols, rows, err)})
+                obs_parts.append(_fmt_obs(cols, rows, err))
             else:
-                msgs.append({"role": "tool", "content": f"ERROR: unknown tool {fn}"})
+                obs_parts.append(f"ERROR: unknown tool {fn}")
         if done:
             break
+        msgs.append({"role": "tool", "content": "\n\n".join(obs_parts) + budget_note(max_turns - turns)})
     last = next((m.get("content") or "" for m in reversed(msgs) if m["role"] == "assistant"), "")
     return {"submitted_sql": submitted, "via": via, "turns": turns, "n_run_sql": n_run_sql,
             "hit_cap": turns >= max_turns and submitted is None, "final_text": last[:600]}
