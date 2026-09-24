@@ -46,6 +46,10 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
         except requests.exceptions.RequestException as e:
             return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
                     "final_text": f"request error: {type(e).__name__}"}
+        if r.status_code == 500 and "syntax error" in r.text:
+            # Ollama could not parse the model's tool call (malformed XML): a model failure, not infrastructure.
+            via, msgs = "malformed", msgs + [{"role": "assistant", "content": r.text[:300]}]
+            break
         if r.status_code != 200:
             r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
                                             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx, "num_predict": NUM_PREDICT}},
