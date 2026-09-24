@@ -78,7 +78,6 @@ def main():
         "exec_acc_by_hops": {h: round(sum(e["pass"] for e in eps if e["hops"] == h) / max(1, sum(1 for e in eps if e["hops"] == h)), 3) for h in sorted({e["hops"] for e in eps})},
         "mean_turns": round(sum(e["turns"] for e in eps) / n, 2),
     }
-    Path(f"runs/{a.tag}.json").write_text(json.dumps({"summary": summary, "episodes": eps}, indent=1, default=str))
     per_task, hops_of = {}, {}
     for e in eps:
         per_task.setdefault(e["task"], []).append(e["pass"])
@@ -95,6 +94,7 @@ def main():
         zh = Counter(zone(v) for t, v in multi.items() if hops_of[t] == h)
         by_hops[h] = {"n": sum(zh.values()), **dict(zh), "learnable_share": round(zh["learnable"] / max(1, sum(zh.values())), 3)}
     summary["zones_by_hops"] = by_hops
+    Path(f"runs/{a.tag}.json").write_text(json.dumps({"summary": summary, "episodes": eps}, indent=1, default=str))
     print("METRIC exec_acc", summary["exec_acc"])
     print("METRIC learnable_share", summary["learnable_share"])
     print(json.dumps(summary, indent=1))
