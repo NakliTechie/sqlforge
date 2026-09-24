@@ -1,4 +1,4 @@
-"""Lockbox runner. Usage: uv run python -m lab.run [--tasks id,id] [--seeds 1,2,3] [--tag name]
+"""Lockbox runner. Usage: uv run python -m lab.run [--tasks id,id] [--seeds 1,2,3] [--tag name] [--max-turns N]
 Writes runs/<tag>.json with per-episode results and prints the summary metrics."""
 import argparse
 import json
@@ -36,6 +36,7 @@ def main():
     ap.add_argument("--model", default=MODEL)
     ap.add_argument("--taskfile", default="", help="JSON list of tasks (e.g. lab/synth_tasks.json) instead of the fixed set")
     ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
+    ap.add_argument("--max-turns", type=int, default=MAX_TURNS, help="rollout turn cap (episode ends NOSUBMIT at the cap)")
     a = ap.parse_args()
     ids = [s for s in a.tasks.split(",") if s]
     pool = json.load(open(a.taskfile)) if a.taskfile else tasks.TASKS
@@ -55,7 +56,7 @@ def main():
                 continue
             ts = time.time()
             ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
-                             max_turns=MAX_TURNS, num_ctx=NUM_CTX)
+                             max_turns=a.max_turns, num_ctx=NUM_CTX)
             sql = ep["submitted_sql"]
             res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
             row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
@@ -68,7 +69,7 @@ def main():
             print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
     n = len(eps)
     summary = {
-        "tag": a.tag, "model": a.model, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
+        "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
         "exec_acc": round(sum(e["pass"] for e in eps) / n, 4),
         "turn_cap_rate": round(sum(e["hit_cap"] for e in eps) / n, 4),
         "no_submit_rate": round(sum(e["sql"] is None for e in eps) / n, 4),
@@ -78,12 +79,22 @@ def main():
         "mean_turns": round(sum(e["turns"] for e in eps) / n, 2),
     }
     Path(f"runs/{a.tag}.json").write_text(json.dumps({"summary": summary, "episodes": eps}, indent=1, default=str))
-    per_task = {}
+    per_task, hops_of = {}, {}
     for e in eps:
         per_task.setdefault(e["task"], []).append(e["pass"])
-    zones = Counter("learnable" if 0 < sum(v) < len(v) else ("saturated" if all(v) else "unsolved") for v in per_task.values() if len(v) > 1)
+        hops_of[e["task"]] = e["hops"]
+
+    def zone(v):
+        return "learnable" if 0 < sum(v) < len(v) else ("saturated" if all(v) else "unsolved")
+    multi = {t: v for t, v in per_task.items() if len(v) > 1}
+    zones = Counter(zone(v) for v in multi.values())
     summary["zones"] = dict(zones)
     summary["learnable_share"] = round(zones["learnable"] / max(1, sum(zones.values())), 4)
+    by_hops = {}
+    for h in sorted({hops_of[t] for t in multi}):
+        zh = Counter(zone(v) for t, v in multi.items() if hops_of[t] == h)
+        by_hops[h] = {"n": sum(zh.values()), **dict(zh), "learnable_share": round(zh["learnable"] / max(1, sum(zh.values())), 3)}
+    summary["zones_by_hops"] = by_hops
     print("METRIC exec_acc", summary["exec_acc"])
     print("METRIC learnable_share", summary["learnable_share"])
     print(json.dumps(summary, indent=1))

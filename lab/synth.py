@@ -7,7 +7,10 @@ space is large and reproducible. Every candidate then passes the same admission 
 hand-made set: gold executes on all hidden seeds, non-empty on the visible seed, result differs
 across seeds (no constant answers), and deduped by normalised gold SQL.
 
-Usage: uv run python -m lab.synth --n 200 --seed 7 --out lab/synth_tasks.json
+Hop mix: --hops is a weighted list of target hop counts; each draw picks one entry and keeps only the
+templates with that hop count, so `--hops 1,2,2,3` yields ~25/50/25 % of hops 1/2/3 and no hop 4.
+
+Usage: uv run python -m lab.synth --n 200 --seed 7 --out lab/synth_tasks.json [--hops 1,2,2,3]
 """
 from __future__ import annotations
 
@@ -174,25 +177,28 @@ def admit(task: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def generate(n: int, seed: int) -> tuple[list[dict], dict]:
+def generate(n: int, seed: int, hops: list[int] = (1, 2, 3, 4)) -> tuple[list[dict], dict]:
     r = random.Random(seed)
     seen, tasks, rejected = set(), [], {}
     i = 0
     while len(tasks) < n and i < n * 20:
         i += 1
         gen = r.choice(GENERATORS)
+        target = r.choice(hops)
         for t in gen(random.Random(r.random())):
+            if t["hops"] != target:
+                continue
             t["ddl"] = DDL[t["schema"]]
             t["gold"] = [t.pop("gold")]
             t["condition_cols"] = None
             key = _norm_sql(t["gold"][0])
             if key in seen:
                 continue
+            seen.add(key)  # admitted or rejected, never re-check the same gold
             ok, why = admit(t)
             if not ok:
                 rejected[why] = rejected.get(why, 0) + 1
                 continue
-            seen.add(key)
             t["id"] = f"syn{len(tasks):04d}"
             tasks.append(t)
             if len(tasks) >= n:
@@ -205,8 +211,9 @@ def main():
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", default="lab/synth_tasks.json")
+    ap.add_argument("--hops", default="1,2,3,4", help="weighted list of target hop counts, e.g. 1,2,2,3")
     a = ap.parse_args()
-    tasks, rejected = generate(a.n, a.seed)
+    tasks, rejected = generate(a.n, a.seed, [int(h) for h in a.hops.split(",")])
     json.dump(tasks, open(a.out, "w"), indent=1, default=str)
     from collections import Counter
     print(f"admitted {len(tasks)} unique tasks → {a.out}")
