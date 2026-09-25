@@ -72,6 +72,7 @@ def main():
                     help="hf = serial HF generate (laptop/MPS); vllm = batched vLLM engine on the same GPU (train/vllm_policy.py)")
     ap.add_argument("--vllm-mem", type=float, default=0.35, help="fraction of GPU memory for the vLLM engine")
     ap.add_argument("--vllm-eager", action="store_true", help="skip torch.compile/CUDA graphs: faster start, slower decode")
+    ap.add_argument("--no-grad-ckpt", dest="grad_ckpt", action="store_false", help="disable activation checkpointing")
     ap.add_argument("--vllm-lora-mode", default="remap", choices=["remap", "textonly"],
                     help="how the HF adapter reaches vLLM's Qwen3.5 (train/vllm_policy.py); pick what train.check_vllm passes")
     ap.add_argument("--no-think", dest="think", action="store_false",
@@ -99,6 +100,10 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=dtype).to(a.device)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.0, task_type="CAUSAL_LM",
                                              target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
+    if a.grad_ckpt:  # recompute activations in backward: long capped trajectories (10 × 2048 tokens) OOM'd without it (gpu5)
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.enable_input_require_grads()
+        model.config.use_cache = False
     model.print_trainable_parameters()
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
     if a.rollout == "hf":

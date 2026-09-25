@@ -195,6 +195,9 @@ def check_logprobs(model_name: str, device: str):
         return v.item(), [p.grad.detach().clone() for p in params]
 
     v_ref, g_ref = run(reference_logprobs)
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # the trainer's setting
+    model.enable_input_require_grads()
+    model.train()
     old_chunk = grpo.LOGPROB_CHUNK
     grpo.LOGPROB_CHUNK = 64  # 369 generated positions → 6 chunks, last one partial
     try:
@@ -202,7 +205,7 @@ def check_logprobs(model_name: str, device: str):
     finally:
         grpo.LOGPROB_CHUNK = old_chunk
     worst = max(((a - b).abs().max() / b.abs().max().clamp(min=1e-12)).item() for a, b in zip(g_new, g_ref))
-    print(f"   value ref {v_ref:.6f} new {v_new:.6f} · max rel grad diff {worst:.2e} over {len(params)} LoRA tensors")
+    print(f"   value ref {v_ref:.6f} new (grad ckpt on) {v_new:.6f} · max rel grad diff {worst:.2e} over {len(params)} LoRA tensors")
     assert abs(v_new - v_ref) < 1e-4, "logprob value mismatch"
     assert worst < 1e-3, "LoRA gradient mismatch"
     print("OK sequence_logprobs")
