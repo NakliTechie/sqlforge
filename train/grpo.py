@@ -17,14 +17,24 @@ from torch.utils.checkpoint import checkpoint
 LOGPROB_CHUNK = 1024  # rows of [chunk, vocab] fp32 alive at once during log-softmax (fwd and recompute)
 
 
-def shaped_reward(passed: bool, gen_chars: int, target_chars: int, alpha: float) -> float:
-    """Binary pass, discounted by a log-length penalty past target_chars. A capped episode never submitted, so it
-    cannot pass; there is no partial credit."""
+def shaped_reward(passed: bool, submitted: bool, gen_chars: int, target_chars: int, alpha: float,
+                  no_submit_reward: float = 0.0) -> float:
+    """Binary pass, discounted by a log-length penalty past target_chars. A wrong submission scores 0; an episode
+    that never submits scores `no_submit_reward` (0 = indistinguishable from wrong, the pre-2026-09-25 default;
+    -1 = SkyRL-SQL's choice, gives an all-fail group gradient toward submitting)."""
+    if not submitted:
+        return no_submit_reward
     if not passed:
         return 0.0
     if gen_chars <= target_chars or alpha <= 0:
         return 1.0
     return max(0.0, 1.0 - alpha * math.log(gen_chars / target_chars))
+
+
+def outcome_class(r: float) -> float:
+    """Collapses the length shaping: pass → 1, wrong → 0, no-submit → its (negative) reward. Groups with one
+    outcome class carry no signal and are dropped; length variance among passes alone is not a reason to train."""
+    return 1.0 if r > 0 else r
 
 
 def group_advantages(rewards: list[float]) -> list[float] | None:

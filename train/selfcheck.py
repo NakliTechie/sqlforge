@@ -27,11 +27,17 @@ def reference_logprobs(model, ids, mask):
 
 def check_reward():
     r = grpo.shaped_reward
-    assert r(False, 10, 6000, 0.1) == 0.0
-    assert r(True, 100, 6000, 0.1) == 1.0
-    assert r(True, 12000, 6000, 0.0) == 1.0
-    assert abs(r(True, 12000, 6000, 0.1) - (1 - 0.1 * 0.6931)) < 1e-3
-    print("OK shaped_reward")
+    assert r(False, True, 10, 6000, 0.1) == 0.0            # submitted, wrong
+    assert r(False, False, 10, 6000, 0.1) == 0.0           # never submitted, default: same as wrong
+    assert r(False, False, 10, 6000, 0.1, -1.0) == -1.0    # never submitted, SkyRL-style penalty
+    assert r(True, True, 100, 6000, 0.1) == 1.0
+    assert r(True, True, 12000, 6000, 0.0) == 1.0
+    assert abs(r(True, True, 12000, 6000, 0.1) - (1 - 0.1 * 0.6931)) < 1e-3
+    oc = grpo.outcome_class
+    assert grpo.group_advantages([oc(x) for x in (0.0, 0.0, 0.0, 0.0)]) is None          # all wrong → dropped
+    assert grpo.group_advantages([oc(x) for x in (-1.0, 0.0, -1.0, 0.0)]) is not None    # no-submit vs wrong → kept
+    assert grpo.group_advantages([oc(x) for x in (1.0, 0.93, 1.0, 0.8)]) is None         # all pass, length only → dropped
+    print("OK shaped_reward + outcome_class")
 
 
 def check_nudge():

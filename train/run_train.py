@@ -24,7 +24,7 @@ from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from lab import schemas, tasks as fixed_tasks, verify
-from train.grpo import group_advantages, grpo_step, shaped_reward
+from train.grpo import group_advantages, grpo_step, outcome_class, shaped_reward
 from train.rollout import HFPolicy, run_episode, tokenize_trajectory
 
 HARNESS = Path(__file__).parent.parent / "harness"
@@ -73,6 +73,8 @@ def main():
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--alpha", type=float, default=0.1, help="success-gated log-length penalty; 0 disables")
     ap.add_argument("--target-chars", type=int, default=6000)
+    ap.add_argument("--no-submit-reward", type=float, default=0.0,
+                    help="reward for an episode that never calls submit (0 = same as wrong; -1 = SkyRL-SQL)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     ap.add_argument("--dtype", default="bf16")
     ap.add_argument("--seed", type=int, default=0)
@@ -117,7 +119,7 @@ def main():
     run_eval(0)
     for step in range(1, a.steps + 1):
         t0 = time.time()
-        batch, rewards_all, passes, turns, groups_kept = [], [], 0, [], 0
+        batch, rewards_all, passes, nosub, turns, groups_kept = [], [], 0, 0, [], 0
         for task in random.sample(pool, a.tasks_per_step):
             system = system_tpl.replace("{ddl}", task["ddl"].strip())
             trajs, rewards = [], []
@@ -125,14 +127,15 @@ def main():
             for g in range(a.group):
                 tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=a.max_turns)
                 res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
-                r = shaped_reward(res["pass"], tr.gen_chars(), a.target_chars, a.alpha)
+                r = shaped_reward(res["pass"], tr.submitted_sql is not None, tr.gen_chars(), a.target_chars, a.alpha,
+                                  a.no_submit_reward)
                 trajs.append(tr)
                 rewards.append(r)
                 passes += int(res["pass"])
+                nosub += int(tr.submitted_sql is None)
                 turns.append(tr.turns)
             rewards_all.extend(rewards)
-            adv = group_advantages([1.0 if r > 0 else 0.0 for r in rewards])  # zero-variance filter on raw pass/fail
-            if adv is None:
+            if group_advantages([outcome_class(r) for r in rewards]) is None:  # one outcome class → no signal
                 continue
             adv = group_advantages(rewards)
             groups_kept += 1
@@ -142,6 +145,7 @@ def main():
         stats = grpo_step(model, opt, batch, a.device) if batch else {"loss": 0.0, "grad_norm": 0.0}
         n = a.tasks_per_step * a.group
         row = {"step": step, "reward_mean": round(sum(rewards_all) / n, 4), "pass_rate": round(passes / n, 4),
+               "no_submit_rate": round(nosub / n, 4),
                "mean_turns": round(sum(turns) / n, 2), "groups_kept": groups_kept, "n_traj_in_batch": len(batch),
                **{k: round(v, 5) for k, v in stats.items()}, "secs": round(time.time() - t0, 1)}
         print(json.dumps(row), flush=True)
