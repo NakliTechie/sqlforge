@@ -76,21 +76,38 @@ def check_turn_rule(model_name: str):
             return [], [], str(e)
     xml_call = "<tool_call>\n<function=run_sql>\n<parameter=sql>\nSELECT 1\n</parameter>\n</function>\n</tool_call>"
 
-    # Ollama harness
-    script = [{"thinking": "plan:\n```sql\nSELECT 42\n```\nlet me test first", "content": ""},
-              {"thinking": "run it " + xml_call, "content": ""},
-              {"thinking": "done", "content": "", "tool_calls": [{"function": {"name": "submit", "arguments": {"sql": gold}}}]}]
+    # Measurement harness, both backends, same three turns
     class R:
         status_code, text = 200, ""
-        def __init__(self, m): self.m = m
-        def json(self): return {"message": {"role": "assistant", **self.m}}
-    it = iter(script)
-    with mock.patch.object(L.requests, "post", side_effect=lambda *a, **k: R(next(it))):
-        ep = L.run_episode(t["ddl"], t["q"], run_sql, model="m", seed=1, max_turns=10, num_ctx=4096)
-    roles = [m["role"] for m in ep["trace"]]
-    assert ep["submitted_sql"] == gold and ep["via"] == "tool" and ep["turns"] == 3 and ep["n_run_sql"] == 1, ep
-    assert roles == ["user", "assistant", "user", "assistant", "tool", "assistant"], roles
-    assert ep["trace"][2]["content"].startswith(parse.EMPTY_TURN_NOTE)
+        def __init__(self, body): self.body = body
+        def json(self): return self.body
+    ollama_script = [
+        {"message": {"role": "assistant", "thinking": "plan:\n```sql\nSELECT 42\n```\nlet me test first", "content": ""}},
+        {"message": {"role": "assistant", "thinking": "run it " + xml_call, "content": ""}},
+        {"message": {"role": "assistant", "thinking": "done", "content": "",
+                     "tool_calls": [{"function": {"name": "submit", "arguments": {"sql": gold}}}]}}]
+    openai_script = [
+        {"choices": [{"message": {"role": "assistant", "reasoning_content": "plan:\n```sql\nSELECT 42\n```\nlet me test", "content": None}}]},
+        {"choices": [{"message": {"role": "assistant", "reasoning_content": "run it " + xml_call, "content": ""}}]},
+        {"choices": [{"message": {"role": "assistant", "reasoning_content": "done", "content": None, "tool_calls": [
+            {"id": "chatcmpl-tool-1", "type": "function", "function": {"name": "submit", "arguments": _json.dumps({"sql": gold})}}]}}]}]
+    for backend, script in (("ollama", ollama_script), ("openai", openai_script)):
+        it, sent = iter(script), []
+        def post(url, json=None, timeout=None):
+            sent.append(_json.loads(_json.dumps(json)))
+            return R(next(it))
+        with mock.patch.object(L.requests, "post", side_effect=post):
+            ep = L.run_episode(t["ddl"], t["q"], run_sql, model="m", seed=1, max_turns=10, num_ctx=4096, backend=backend)
+        roles = [m["role"] for m in ep["trace"]]
+        assert ep["submitted_sql"] == gold and ep["via"] == "tool" and ep["turns"] == 3 and ep["n_run_sql"] == 1, (backend, ep)
+        assert roles == ["user", "assistant", "user", "assistant", "tool", "assistant"], (backend, roles)
+        assert ep["trace"][2]["content"].startswith(parse.EMPTY_TURN_NOTE), backend
+        hist = sent[-1]["messages"]            # what the 3rd request carried
+        a2, tool = hist[-2], hist[-1]           # turn-2 assistant (call parsed from thinking) and its observation
+        assert a2["role"] == "assistant" and a2["tool_calls"], (backend, a2)
+        if backend == "openai":
+            assert tool["role"] == "tool" and tool["tool_call_id"] == a2["tool_calls"][0]["id"], (backend, tool)
+            assert "enable_thinking" in sent[0]["chat_template_kwargs"] and sent[0]["max_tokens"] == L.NUM_PREDICT
 
     # HF training harness, same turns as raw Qwen text (prompt ends in '<think>\n')
     tok = AutoTokenizer.from_pretrained(model_name)
@@ -107,7 +124,7 @@ def check_turn_rule(model_name: str):
     assert len(gen) == 3 and parse.EMPTY_TURN_NOTE in tr.segments[2][0]
     ids, mask = tokenize_trajectory(tok, tr)
     assert tok.decode(ids[mask.bool()]) == "".join(gen)
-    print("OK turn rule (loop.py and rollout.py agree: note, thinking-call, submit)")
+    print("OK turn rule (loop.py ollama + openai and rollout.py agree: note, thinking-call, submit)")
 
 
 def check_logprobs(model_name: str, device: str):

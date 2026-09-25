@@ -40,6 +40,9 @@ def main():
     ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
     ap.add_argument("--max-turns", type=int, default=MAX_TURNS, help="rollout turn cap (episode ends NOSUBMIT at the cap)")
     ap.add_argument("--no-think", dest="think", action="store_false", help="Ollama think=false; default on")
+    ap.add_argument("--backend", default="ollama", choices=["ollama", "openai"],
+                    help="ollama = laptop /api/chat; openai = vLLM /v1/chat/completions (GPU)")
+    ap.add_argument("--url", default=None, help="server endpoint; default per backend (harness/loop.py URLS)")
     ap.add_argument("--parallel", type=int, default=1,
                     help="episodes in flight at once; set OLLAMA_NUM_PARALLEL >= this on the server. Batched requests "
                          "are not bit-identical to serial ones, so compare parallel runs with parallel runs")
@@ -63,7 +66,8 @@ def main():
     def one(t, seed):
         ts = time.time()
         ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
-                         max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think)
+                         max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think,
+                         backend=a.backend, url=a.url)
         sql = ep["submitted_sql"]
         res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
         row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
@@ -84,7 +88,7 @@ def main():
         list(ex.map(lambda ts_: one(*ts_), todo))  # list() re-raises the first worker exception
     n = len(eps)
     summary = {
-        "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "think": a.think, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
+        "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "think": a.think, "backend": a.backend, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
         "exec_acc": round(sum(e["pass"] for e in eps) / n, 4),
         "turn_cap_rate": round(sum(e["hit_cap"] for e in eps) / n, 4),
         "no_submit_rate": round(sum(e["sql"] is None for e in eps) / n, 4),
