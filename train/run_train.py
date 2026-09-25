@@ -25,7 +25,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from lab import schemas, tasks as fixed_tasks, verify
 from train.grpo import group_advantages, grpo_step, outcome_class, shaped_reward
-from train.rollout import HFPolicy, run_episode, tokenize_trajectory
+from train.rollout import Episode, HFPolicy, run_episodes, tokenize_trajectory
 
 HARNESS = Path(__file__).parent.parent / "harness"
 
@@ -43,13 +43,12 @@ def make_run_sql(schema):
 
 
 def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed: int, think: bool) -> dict:
-    """One rollout per held-out task with the current policy; returns the runner-style summary."""
+    """One rollout per held-out task with the current policy, all tasks batched; runner-style summary."""
     torch.manual_seed(seed)
-    policy.model.eval()
+    eps = [Episode(tok, system_tpl.replace("{ddl}", t["ddl"].strip()), t["q"], tools, make_run_sql(t["schema"]),
+                   max_turns=max_turns, think=think, seed=seed * 10_000 + i) for i, t in enumerate(eval_tasks)]
     rows = []
-    for task in eval_tasks:
-        system = system_tpl.replace("{ddl}", task["ddl"].strip())
-        tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=max_turns, think=think)
+    for task, tr in zip(eval_tasks, run_episodes(policy, eps)):
         res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
         rows.append({"hops": task["hops"], "pass": bool(res["pass"]), "hit_cap": tr.hit_cap, "turns": tr.turns})
     n = len(rows)
@@ -69,6 +68,10 @@ def main():
     ap.add_argument("--group", type=int, default=8)
     ap.add_argument("--max-turns", type=int, default=25)
     ap.add_argument("--max-new-tokens", type=int, default=2048, help="per-turn cap; matches harness/loop.py NUM_PREDICT")
+    ap.add_argument("--rollout", default="hf", choices=["hf", "vllm"],
+                    help="hf = serial HF generate (laptop/MPS); vllm = batched vLLM engine on the same GPU (train/vllm_policy.py)")
+    ap.add_argument("--vllm-mem", type=float, default=0.35, help="fraction of GPU memory for the vLLM engine")
+    ap.add_argument("--vllm-eager", action="store_true", help="skip torch.compile/CUDA graphs: faster start, slower decode")
     ap.add_argument("--no-think", dest="think", action="store_false",
                     help="disable Qwen thinking (template enable_thinking=False); default on, matching lab.run")
     ap.add_argument("--lr", type=float, default=1e-5)
@@ -91,12 +94,17 @@ def main():
     torch.manual_seed(a.seed)
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[a.dtype]
     tok = AutoTokenizer.from_pretrained(a.model)
+    if a.rollout == "vllm":  # before the HF model, so vLLM's memory check sees the GPU it will share
+        from train.vllm_policy import VLLMPolicy
+        policy = VLLMPolicy(a.model, max_new_tokens=a.max_new_tokens, gpu_memory_utilization=a.vllm_mem,
+                            max_lora_rank=max(16, a.lora_r), enforce_eager=a.vllm_eager)
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=dtype).to(a.device)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.0, task_type="CAUSAL_LM",
                                              target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
     model.print_trainable_parameters()
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
-    policy = HFPolicy(model, tok, a.device, max_new_tokens=a.max_new_tokens)
+    if a.rollout == "hf":
+        policy = HFPolicy(model, tok, a.device, max_new_tokens=a.max_new_tokens)
 
     pool = json.load(open(a.tasks))
     system_tpl = (HARNESS / "system.md").read_text()
@@ -114,20 +122,25 @@ def main():
         row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seed=a.eval_seed, think=a.think),
                "secs": round(time.time() - t0, 1)}
         torch.manual_seed(a.seed + step)  # eval sampling must not perturb the training stream
+        model.eval()
         print(json.dumps(row), flush=True)
         with eval_log.open("a") as f:
             f.write(json.dumps(row) + "\n")
 
+    model.eval()
     run_eval(0)
     for step in range(1, a.steps + 1):
         t0 = time.time()
         batch, rewards_all, passes, nosub, turns, groups_kept = [], [], 0, 0, [], 0
-        for task in random.sample(pool, a.tasks_per_step):
-            system = system_tpl.replace("{ddl}", task["ddl"].strip())
+        model.eval()
+        step_tasks = random.sample(pool, a.tasks_per_step)
+        eps = [Episode(tok, system_tpl.replace("{ddl}", task["ddl"].strip()), task["q"], tools, make_run_sql(task["schema"]),
+                       max_turns=a.max_turns, think=a.think, seed=a.seed * 1_000_000 + step * 1_000 + k * a.group + g)
+               for k, task in enumerate(step_tasks) for g in range(a.group)]
+        all_trajs = run_episodes(policy, eps)  # every rollout of the step in one lockstep batch
+        for k, task in enumerate(step_tasks):
             trajs, rewards = [], []
-            model.eval()
-            for g in range(a.group):
-                tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=a.max_turns, think=a.think)
+            for tr in all_trajs[k * a.group:(k + 1) * a.group]:
                 res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
                 r = shaped_reward(res["pass"], tr.submitted_sql is not None, tr.gen_chars(), a.target_chars, a.alpha,
                                   a.no_submit_reward)
@@ -145,6 +158,10 @@ def main():
                 ids, mask = tokenize_trajectory(tok, tr)
                 batch.append((ids, mask, av))
         stats = grpo_step(model, opt, batch, a.device) if batch else {"loss": 0.0, "grad_norm": 0.0}
+        if a.rollout == "vllm" and batch:  # hand the updated LoRA to the engine for the next step's rollouts
+            live = out_dir / "rollout" / f"step{step}"
+            model.save_pretrained(live)
+            policy.set_adapter(str(live.resolve()), step)
         n = a.tasks_per_step * a.group
         row = {"step": step, "reward_mean": round(sum(rewards_all) / n, 4), "pass_rate": round(passes / n, 4),
                "no_submit_rate": round(nosub / n, 4),

@@ -117,6 +117,7 @@ def check_turn_rule(model_name: str):
                 "done\n</think>\n\n" + submit_xml + "<|im_end|>"])
     class P:
         def generate(self, prompt): return next(raw)
+        def generate_batch(self, prompts, seeds): return [self.generate(x) for x in prompts]
     tools = _json.loads(open("harness/tools.json").read())
     tr = hf_episode(P(), tok, "S", t["q"], tools, run_sql, max_turns=10, think=True)
     assert tr.submitted_sql == gold and tr.turns == 3 and not tr.hit_cap, (tr.submitted_sql, tr.turns)
@@ -125,6 +126,46 @@ def check_turn_rule(model_name: str):
     ids, mask = tokenize_trajectory(tok, tr)
     assert tok.decode(ids[mask.bool()]) == "".join(gen)
     print("OK turn rule (loop.py ollama + openai and rollout.py agree: note, thinking-call, submit)")
+
+
+def check_batched_rollout(model_name: str):
+    """run_episodes (lockstep batch) must reproduce run_episode (one at a time) exactly, with episodes finishing on
+    different turns: A submits on turn 1, B runs SQL then submits on turn 2, C sends an empty turn then caps at 3."""
+    import json as _json
+    from lab import schemas, tasks, verify
+    from train.rollout import Episode, run_episode, run_episodes
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(model_name)
+    tools = _json.loads(open("harness/tools.json").read())
+    t = tasks.TASKS[0]
+    con = schemas.build(t["schema"], tasks.VISIBLE_SEED)
+    def run_sql(q):
+        try:
+            c, r = verify.execute(con, q); return c, r, None
+        except verify.ExecError as e:
+            return [], [], str(e)
+    call = lambda n, q: f"x</think>\n\n<tool_call>\n<function={n}>\n<parameter=sql>\n{q}\n</parameter>\n</function>\n</tool_call><|im_end|>"
+    scripts = {"QA": [call("submit", "SELECT 1")],
+               "QB": [call("run_sql", "SELECT 2"), call("submit", "SELECT 3")],
+               "QC": ["just thinking</think>\n\n<|im_end|>", call("run_sql", "SELECT 4"), call("run_sql", "SELECT 5")]}
+    class P:
+        def __init__(self): self.calls, self.pos = 0, {}
+        def generate_batch(self, prompts, seeds):
+            self.calls += 1
+            out = []
+            for pr in prompts:
+                q = next(k for k in scripts if f"\n{k}<|im_end|>" in pr)
+                i = self.pos.get(q, 0); self.pos[q] = i + 1
+                out.append(scripts[q][i])
+            return out
+        def generate(self, prompt): return self.generate_batch([prompt], [None])[0]
+    mk = lambda q: Episode(tok, "S", q, tools, run_sql, max_turns=3, think=True)
+    batched = run_episodes(pb := P(), [mk(q) for q in scripts])
+    single = [run_episode(P(), tok, "S", q, tools, run_sql, max_turns=3, think=True) for q in scripts]
+    for b, s in zip(batched, single):
+        assert (b.submitted_sql, b.turns, b.hit_cap, b.segments) == (s.submitted_sql, s.turns, s.hit_cap, s.segments)
+    assert [b.turns for b in batched] == [1, 2, 3] and batched[2].hit_cap and pb.calls == 3, [b.turns for b in batched]
+    print("OK batched rollout (lockstep == one-at-a-time; 3 episodes, 3 generate calls)")
 
 
 def check_logprobs(model_name: str, device: str):
@@ -175,6 +216,7 @@ def main():
     check_reward()
     check_nudge()
     check_turn_rule(a.model)
+    check_batched_rollout(a.model)
     check_logprobs(a.model, a.device)
     print("ALL OK")
 

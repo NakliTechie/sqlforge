@@ -1,18 +1,21 @@
 """Multi-turn rollouts for training: build the token sequence segment by segment so the loss
 mask lands exactly on model-generated tokens; tool observations stay in context, masked out.
 
-A Policy only needs `generate(prompt_text) -> text`. HFPolicy is local (laptop smoke, single-GPU
-climb); a vLLM/SGLang policy plugs in with the same one method.
+A policy needs `generate_batch(prompts, seeds) -> texts` (raw text continuations of raw prompts). HFPolicy
+(train/rollout.py) generates one sequence at a time; VLLMPolicy (train/vllm_policy.py) batches every active episode
+into one call with prefix caching. `run_episodes` advances many episodes in lockstep, one batched call per turn;
+`run_episode` is the single-episode case of the same state machine.
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 
 import torch
 
 from harness.nudge import budget_note
 from harness.parse import EMPTY_TURN_NOTE, parse_calls, split_thinking, sql_in_answer
+
+EOS = "<|im_end|>"
 
 
 @dataclass
@@ -42,6 +45,9 @@ class HFPolicy:
         gen = out[0, ids.shape[1]:]
         return self.tok.decode(gen, skip_special_tokens=False)
 
+    def generate_batch(self, prompts: list[str], seeds: list[int | None]) -> list[str]:
+        return [self.generate(p) for p in prompts]
+
 
 def reply_chunk(tok, role: str, content: str, think: bool) -> str:
     """The template's text between an assistant turn's <|im_end|> and the next generation point, for a tool
@@ -51,44 +57,73 @@ def reply_chunk(tok, role: str, content: str, think: bool) -> str:
     return full[full.index("y<|im_end|>") + len("y<|im_end|>"):]
 
 
-def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int,
-                think: bool = True) -> Trajectory:
-    msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
-    prompt = tok.apply_chat_template(msgs, tools=tools, tokenize=False, add_generation_prompt=True, enable_thinking=think)
-    tr = Trajectory(segments=[(prompt, False)])
-    eos = "<|im_end|>"
-    while tr.turns < max_turns:
+class Episode:
+    """One rollout as a state machine: prompt() → policy text → advance(text). done() once it submits or caps."""
+
+    def __init__(self, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int, think: bool = True,
+                 seed: int | None = None):
+        msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+        prompt = tok.apply_chat_template(msgs, tools=tools, tokenize=False, add_generation_prompt=True,
+                                         enable_thinking=think)
+        self.tok, self.run_sql, self.max_turns, self.think, self.seed = tok, run_sql, max_turns, think, seed
+        self.tr = Trajectory(segments=[(prompt, False)])
+        self._done = False
+
+    def done(self) -> bool:
+        return self._done
+
+    def prompt(self) -> str:
+        return "".join(t for t, _ in self.tr.segments)
+
+    def advance(self, text: str) -> None:
+        tr = self.tr
         tr.turns += 1
-        text = policy.generate("".join(t for t, _ in tr.segments))
-        if eos not in text:
-            text = text + eos  # truncated generation: close the turn so the sequence stays well-formed
-        text = text[: text.index(eos) + len(eos)]
+        if EOS not in text:
+            text = text + EOS  # truncated generation: close the turn so the sequence stays well-formed
+        text = text[: text.index(EOS) + len(EOS)]
         tr.segments.append((text, True))
         tr.final_text = text
-        body = text[: -len(eos)]
-        thinking, answer = split_thinking(body) if think else ("", body)
+        body = text[: -len(EOS)]
+        thinking, answer = split_thinking(body) if self.think else ("", body)
         calls = parse_calls(answer) or parse_calls(thinking)                   # harness/parse.py rule 1
+        left = self.max_turns - tr.turns
         if not calls:
             sql = sql_in_answer(answer)                                        # rule 2
             if sql:
-                tr.submitted_sql = sql
-                return tr
-            tr.segments.append((reply_chunk(tok, "user", EMPTY_TURN_NOTE + budget_note(max_turns - tr.turns), think), False))
-            continue                                                           # rule 3
-        obs_parts = []
-        for c in calls:
-            tr.n_tool += 1
-            if c["name"] == "submit":
-                tr.submitted_sql = c["args"].get("sql", "")
-                return tr
-            if c["name"] == "run_sql":
-                cols, rows, err = run_sql(c["args"].get("sql", ""))
-                obs_parts.append(_fmt(cols, rows, err))
-            else:
-                obs_parts.append(f"ERROR: unknown tool {c['name']}")
-        tr.segments.append((reply_chunk(tok, "tool", "\n\n".join(obs_parts) + budget_note(max_turns - tr.turns), think), False))
-    tr.hit_cap = True
-    return tr
+                tr.submitted_sql, self._done = sql, True
+                return
+            tr.segments.append((reply_chunk(self.tok, "user", EMPTY_TURN_NOTE + budget_note(left), self.think), False))
+        else:
+            obs_parts = []
+            for c in calls:
+                tr.n_tool += 1
+                if c["name"] == "submit":
+                    tr.submitted_sql, self._done = c["args"].get("sql", ""), True
+                    return
+                if c["name"] == "run_sql":
+                    cols, rows, err = self.run_sql(c["args"].get("sql", ""))
+                    obs_parts.append(_fmt(cols, rows, err))
+                else:
+                    obs_parts.append(f"ERROR: unknown tool {c['name']}")
+            tr.segments.append((reply_chunk(self.tok, "tool", "\n\n".join(obs_parts) + budget_note(left), self.think), False))
+        if tr.turns >= self.max_turns:
+            tr.hit_cap, self._done = True, True
+
+
+def run_episodes(policy, episodes: list[Episode]) -> list[Trajectory]:
+    """Advance all episodes in lockstep: one batched generate per turn over the ones still running."""
+    while True:
+        live = [e for e in episodes if not e.done()]
+        if not live:
+            return [e.tr for e in episodes]
+        texts = policy.generate_batch([e.prompt() for e in live], [e.seed for e in live])
+        for e, text in zip(live, texts):
+            e.advance(text)
+
+
+def run_episode(policy, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int,
+                think: bool = True) -> Trajectory:
+    return run_episodes(policy, [Episode(tok, system, question, tools, run_sql, max_turns=max_turns, think=think)])[0]
 
 
 def _fmt(cols, rows, err, max_rows=20, max_chars=1500):
