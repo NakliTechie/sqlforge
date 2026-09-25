@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 import time
 from pathlib import Path
 
@@ -50,10 +51,14 @@ def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed
     rows = []
     for task, tr in zip(eval_tasks, run_episodes(policy, eps)):
         res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
-        rows.append({"hops": task["hops"], "pass": bool(res["pass"]), "hit_cap": tr.hit_cap, "turns": tr.turns})
+        rows.append({"hops": task["hops"], "set": task.get("set", "all"), "pass": bool(res["pass"]),
+                     "hit_cap": tr.hit_cap, "turns": tr.turns, "submitted": tr.submitted_sql is not None})
     n = len(rows)
     hops = sorted({r["hops"] for r in rows})
+    sets = sorted({r["set"] for r in rows})
     return {"exec_acc": round(sum(r["pass"] for r in rows) / n, 4),
+            "exec_acc_by_set": {k: round(sum(r["pass"] for r in rows if r["set"] == k) / sum(1 for r in rows if r["set"] == k), 3) for k in sets},
+            "no_submit_rate": round(sum(not r["submitted"] for r in rows) / n, 4),
             "exec_acc_by_hops": {h: round(sum(r["pass"] for r in rows if r["hops"] == h) / sum(1 for r in rows if r["hops"] == h), 3) for h in hops},
             "turn_cap_rate": round(sum(r["hit_cap"] for r in rows) / n, 4),
             "mean_turns": round(sum(r["turns"] for r in rows) / n, 2), "n": n}
@@ -86,7 +91,9 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     ap.add_argument("--dtype", default="bf16")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--save-every", type=int, default=25)
+    ap.add_argument("--save-every", type=int, default=25, help="keep a full adapter copy under checkpoints/<tag>/stepN")
+    ap.add_argument("--ckpt-every", type=int, default=10, help="resumable checkpoint cadence (adapter + optimizer + RNG)")
+    ap.add_argument("--resume", action="store_true", help="continue from checkpoints/<tag>/ckpt/LATEST if present")
     ap.add_argument("--tag", default=time.strftime("%Y%m%d-%H%M%S"))
     ap.add_argument("--eval-every", type=int, default=25, help="held-out eval cadence in steps; 0 disables")
     ap.add_argument("--eval-tasks", default="", help="JSON task list for eval; default = the 30 hand-made tasks")
@@ -122,6 +129,41 @@ def main():
     out_dir = Path(f"checkpoints/{a.tag}")
     eval_tasks = json.load(open(a.eval_tasks)) if a.eval_tasks else fixed_tasks.TASKS
     eval_log = Path(f"runs/train-{a.tag}-eval.jsonl")
+    ckpt_root = out_dir / "ckpt"
+
+    def save_ckpt(step):
+        """stepN dir written completely first, LATEST pointer last; keep the newest 3."""
+        d = ckpt_root / f"step{step}"
+        model.save_pretrained(d)
+        torch.save({"step": step, "opt": opt.state_dict(), "py_random": random.getstate(),
+                    "torch_rng": torch.get_rng_state(),
+                    "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None}, d / "state.pt")
+        (ckpt_root / "LATEST.tmp").write_text(f"step{step}")
+        (ckpt_root / "LATEST.tmp").replace(ckpt_root / "LATEST")
+        for old in sorted(ckpt_root.glob("step*"), key=lambda q: int(q.name[4:]))[:-3]:
+            shutil.rmtree(old, ignore_errors=True)
+
+    def load_ckpt():
+        """Newest complete checkpoint (LATEST if valid, else the highest stepN with state.pt), or None."""
+        if not ckpt_root.exists():
+            return None
+        cands = sorted(ckpt_root.glob("step*"), key=lambda q: int(q.name[4:]), reverse=True)
+        ptr = ckpt_root / "LATEST"
+        if ptr.exists():
+            cands = [ckpt_root / ptr.read_text().strip()] + cands
+        for d in cands:
+            if (d / "state.pt").exists() and (d / "adapter_model.safetensors").exists():
+                from peft import set_peft_model_state_dict
+                from safetensors.torch import load_file
+                set_peft_model_state_dict(model, load_file(str(d / "adapter_model.safetensors")))
+                st = torch.load(d / "state.pt", weights_only=False)
+                opt.load_state_dict(st["opt"])
+                random.setstate(st["py_random"])
+                torch.set_rng_state(st["torch_rng"])
+                if st.get("cuda_rng") is not None and torch.cuda.is_available():
+                    torch.cuda.set_rng_state_all(st["cuda_rng"])
+                return st["step"], d
+        return None
 
     def run_eval(step):
         if not a.eval_every:
@@ -135,9 +177,17 @@ def main():
         with eval_log.open("a") as f:
             f.write(json.dumps(row) + "\n")
 
+    start = 1
+    resumed = load_ckpt() if a.resume else None
+    if resumed:
+        start = resumed[0] + 1
+        if a.rollout == "vllm":
+            policy.set_adapter(str(resumed[1].resolve()), resumed[0])
+        print(json.dumps({"resumed_from": resumed[0], "ckpt": str(resumed[1])}), flush=True)
     model.eval()
-    run_eval(0)
-    for step in range(1, a.steps + 1):
+    if start == 1:
+        run_eval(0)
+    for step in range(start, a.steps + 1):
         t0 = time.time()
         batch, rewards_all, passes, nosub, turns, groups_kept = [], [], 0, 0, [], 0
         model.eval()
@@ -170,6 +220,9 @@ def main():
             live = out_dir / "rollout" / f"step{step}"
             model.save_pretrained(live)
             policy.set_adapter(str(live.resolve()), step)
+            for old in (out_dir / "rollout").glob("step*"):  # keep the current and previous hand-off only
+                if old.name.split("-")[0] not in (f"step{step}", f"step{step - 1}"):
+                    shutil.rmtree(old, ignore_errors=True)
         n = a.tasks_per_step * a.group
         row = {"step": step, "reward_mean": round(sum(rewards_all) / n, 4), "pass_rate": round(passes / n, 4),
                "no_submit_rate": round(nosub / n, 4),
@@ -182,6 +235,8 @@ def main():
             model.save_pretrained(out_dir / f"step{step}")
         if a.eval_every and (step % a.eval_every == 0 or step == a.steps):
             run_eval(step)
+        if step % a.ckpt_every == 0 or step == a.steps:
+            save_ckpt(step)
 
 
 if __name__ == "__main__":
