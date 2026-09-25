@@ -125,7 +125,7 @@ def main():
             for g in range(a.group):
                 tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=a.max_turns)
                 res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
-                r = shaped_reward(res["pass"], tr.hit_cap, tr.gen_chars(), a.target_chars, a.alpha)
+                r = shaped_reward(res["pass"], tr.gen_chars(), a.target_chars, a.alpha)
                 trajs.append(tr)
                 rewards.append(r)
                 passes += int(res["pass"])

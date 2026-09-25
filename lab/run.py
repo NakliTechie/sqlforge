@@ -64,6 +64,10 @@ def main():
                    "sql": sql, **{k: ep[k] for k in ("via", "turns", "n_run_sql", "hit_cap", "final_text")},
                    "secs": round(time.time() - ts, 1)}
             eps.append(row)
+            tdir = Path(f"runs/{a.tag}")
+            tdir.mkdir(exist_ok=True)
+            (tdir / f"{t['id']}-s{seed}.json").write_text(json.dumps(
+                {"task": t["id"], "q": t["q"], "gold": t["gold"][0], "row": row, "trace": ep["trace"]}, indent=1, default=str))
             with jl.open("a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
             print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)

@@ -36,6 +36,7 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
     system = (HERE / "system.md").read_text().replace("{ddl}", ddl.strip())
     tools = json.loads((HERE / "tools.json").read_text())
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+    trace = [{"role": "user", "content": question}]  # forensics copy: keeps thinking, which msgs drops
     turns, n_run_sql, submitted, via = 0, 0, None, None
     while turns < max_turns:
         turns += 1
@@ -45,10 +46,11 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
                               timeout=600)
         except requests.exceptions.RequestException as e:
             return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
-                    "final_text": f"request error: {type(e).__name__}"}
+                    "final_text": f"request error: {type(e).__name__}", "trace": trace}
         if r.status_code == 500 and "syntax error" in r.text:
             # Ollama could not parse the model's tool call (malformed XML): a model failure, not infrastructure.
             via, msgs = "malformed", msgs + [{"role": "assistant", "content": r.text[:300]}]
+            trace.append({"role": "error", "content": r.text[:300]})
             break
         if r.status_code != 200:
             r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
@@ -56,9 +58,10 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
                               timeout=600)
             if r.status_code != 200:
                 return {"submitted_sql": None, "via": "error", "turns": turns, "n_run_sql": n_run_sql, "hit_cap": False,
-                        "final_text": f"ollama {r.status_code}: {r.text[:300]}"}
+                        "final_text": f"ollama {r.status_code}: {r.text[:300]}", "trace": trace}
         msg = r.json()["message"]
         msgs.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls")})
+        trace.append({k: v for k, v in msg.items() if k in ("role", "thinking", "content", "tool_calls")})
         calls = msg.get("tool_calls") or []
         if not calls:
             submitted, via = _sql_from_text(msg.get("content") or ""), "text"
@@ -79,6 +82,7 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
         if done:
             break
         msgs.append({"role": "tool", "content": "\n\n".join(obs_parts) + budget_note(max_turns - turns)})
+        trace.append(msgs[-1])
     last = next((m.get("content") or "" for m in reversed(msgs) if m["role"] == "assistant"), "")
     return {"submitted_sql": submitted, "via": via, "turns": turns, "n_run_sql": n_run_sql,
-            "hit_cap": turns >= max_turns and submitted is None, "final_text": last[:600]}
+            "hit_cap": turns >= max_turns and submitted is None, "final_text": last[:600], "trace": trace}
