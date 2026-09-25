@@ -3,8 +3,10 @@ Writes runs/<tag>.json with per-episode results and prints the summary metrics."
 import argparse
 import json
 import sys
+import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from harness.loop import run_episode
@@ -38,6 +40,9 @@ def main():
     ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
     ap.add_argument("--max-turns", type=int, default=MAX_TURNS, help="rollout turn cap (episode ends NOSUBMIT at the cap)")
     ap.add_argument("--no-think", dest="think", action="store_false", help="Ollama think=false; default on")
+    ap.add_argument("--parallel", type=int, default=1,
+                    help="episodes in flight at once; set OLLAMA_NUM_PARALLEL >= this on the server. Batched requests "
+                         "are not bit-identical to serial ones, so compare parallel runs with parallel runs")
     a = ap.parse_args()
     ids = [s for s in a.tasks.split(",") if s]
     pool = json.load(open(a.taskfile)) if a.taskfile else tasks.TASKS
@@ -51,27 +56,32 @@ def main():
     eps = [json.loads(l) for l in jl.read_text().splitlines() if l.strip()] if jl.exists() else []
     done = {(e["task"], e["seed"]) for e in eps}
     t0 = time.time()
-    for t in tset:
-        for seed in seeds:
-            if (t["id"], seed) in done:
-                continue
-            ts = time.time()
-            ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
-                             max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think)
-            sql = ep["submitted_sql"]
-            res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
-            row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
-                   "gate": None if res["pass"] else (verify.first_failed_gate(res) if sql else "NOSUBMIT"),
-                   "sql": sql, **{k: ep[k] for k in ("via", "turns", "n_run_sql", "hit_cap", "final_text")},
-                   "secs": round(time.time() - ts, 1)}
+    lock = threading.Lock()
+    tdir = Path(f"runs/{a.tag}")
+    tdir.mkdir(exist_ok=True)
+
+    def one(t, seed):
+        ts = time.time()
+        ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
+                         max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think)
+        sql = ep["submitted_sql"]
+        res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
+        row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
+               "gate": None if res["pass"] else (verify.first_failed_gate(res) if sql else "NOSUBMIT"),
+               "sql": sql, **{k: ep[k] for k in ("via", "turns", "n_run_sql", "hit_cap", "final_text")},
+               "secs": round(time.time() - ts, 1)}
+        (tdir / f"{t['id']}-s{seed}.json").write_text(json.dumps(
+            {"task": t["id"], "q": t["q"], "gold": t["gold"][0], "row": row, "trace": ep["trace"]}, indent=1, default=str))
+        with lock:
             eps.append(row)
-            tdir = Path(f"runs/{a.tag}")
-            tdir.mkdir(exist_ok=True)
-            (tdir / f"{t['id']}-s{seed}.json").write_text(json.dumps(
-                {"task": t["id"], "q": t["q"], "gold": t["gold"][0], "row": row, "trace": ep["trace"]}, indent=1, default=str))
             with jl.open("a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
-            print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
+            print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} "
+                  f"turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
+
+    todo = [(t, seed) for t in tset for seed in seeds if (t["id"], seed) not in done]
+    with ThreadPoolExecutor(max(1, a.parallel)) as ex:
+        list(ex.map(lambda ts_: one(*ts_), todo))  # list() re-raises the first worker exception
     n = len(eps)
     summary = {
         "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "think": a.think, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),

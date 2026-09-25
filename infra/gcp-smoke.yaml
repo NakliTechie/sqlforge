@@ -1,0 +1,33 @@
+# One-hour GCP smoke (approved 2026-09-25, ~$2 of credit): driver on Blackwell, trainer self-check on CUDA,
+# vLLM serving Qwen3.5-4B with tool calls + reasoning, batched throughput.
+#   sky launch -c sqlforge-smoke infra/gcp-smoke.yaml --down -i 20 -y
+# The SkyPilot API server must run with GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_QUOTA_PROJECT = sqlforge-bf3e24
+# (~/Code/infra/gcp/README.md). RTX PRO 6000 comes with g4-standard-48; do not pass --gpus (catalog bug).
+name: sqlforge-smoke
+resources:
+  infra: gcp/us-east1
+  instance_type: g4-standard-48
+  use_spot: true
+  disk_size: 150
+  image_id: projects/deeplearning-platform-release/global/images/common-cu129-ubuntu-2204-nvidia-580-v20260909  # family common-cu129-ubuntu-2204-nvidia-580
+  labels: {sqlforge: "true"}
+workdir: .
+setup: |
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv sync
+  uv venv /tmp/vllm --python 3.12 && uv pip install --python /tmp/vllm/bin/python vllm
+run: |
+  export PATH="$HOME/.local/bin:$PATH"
+  echo "SMOKE $(nvidia-smi --query-gpu=name,driver_version,memory.total,compute_cap --format=csv,noheader)"
+  timeout 45m bash -c '
+    echo "=== trainer selfcheck on cuda"; uv run python -m train.selfcheck --device cuda 2>&1 | grep -E "^(OK|ALL|   value)|Error|Traceback"
+    echo "=== vllm serve"
+    /tmp/vllm/bin/vllm serve Qwen/Qwen3.5-4B --port 8000 --max-model-len 32768 --gpu-memory-utilization 0.85 \
+      --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 > /tmp/vllm.log 2>&1 &
+    for i in $(seq 1 120); do curl -sf localhost:8000/health >/dev/null && break; sleep 5; done
+    curl -sf localhost:8000/health >/dev/null && echo "SMOKE vllm healthy" || { echo "SMOKE vllm failed"; tail -40 /tmp/vllm.log; exit 0; }
+    /tmp/vllm/bin/python infra/gcp_smoke_probe.py Qwen/Qwen3.5-4B 2>&1 | tail -20
+    grep -E "version|Using|parser" /tmp/vllm.log | head -8
+  ' || true
+  echo "SMOKE done"
