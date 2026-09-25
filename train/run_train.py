@@ -94,10 +94,6 @@ def main():
     torch.manual_seed(a.seed)
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[a.dtype]
     tok = AutoTokenizer.from_pretrained(a.model)
-    if a.rollout == "vllm":  # before the HF model, so vLLM's memory check sees the GPU it will share
-        from train.vllm_policy import VLLMPolicy
-        policy = VLLMPolicy(a.model, max_new_tokens=a.max_new_tokens, gpu_memory_utilization=a.vllm_mem,
-                            max_lora_rank=max(16, a.lora_r), enforce_eager=a.vllm_eager)
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=dtype).to(a.device)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.0, task_type="CAUSAL_LM",
                                              target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
@@ -105,6 +101,11 @@ def main():
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0)
     if a.rollout == "hf":
         policy = HFPolicy(model, tok, a.device, max_new_tokens=a.max_new_tokens)
+    else:  # after the HF load: initialising vLLM registers its own Qwen3.5 config classes with transformers, and an HF
+        # load afterwards fails with "'Qwen3_5Config' object has no attribute 'vocab_size'" (GCP runs gpu2/gpu3, 2026-09-25)
+        from train.vllm_policy import VLLMPolicy
+        policy = VLLMPolicy(a.model, max_new_tokens=a.max_new_tokens, gpu_memory_utilization=a.vllm_mem,
+                            max_lora_rank=max(16, a.lora_r), enforce_eager=a.vllm_eager)
 
     pool = json.load(open(a.tasks))
     system_tpl = (HARNESS / "system.md").read_text()

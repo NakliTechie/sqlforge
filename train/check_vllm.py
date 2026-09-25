@@ -30,16 +30,12 @@ def main():
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    policy = VLLMPolicy(a.model, max_new_tokens=128, gpu_memory_utilization=0.35, max_lora_rank=max(16, a.lora_r))
     tok = AutoTokenizer.from_pretrained(a.model)
     t = tasks.TASKS[0]
     tools = json.load(open("harness/tools.json"))
     prompt = tok.apply_chat_template([{"role": "system", "content": "You write DuckDB SQL.\n" + t["ddl"]},
                                       {"role": "user", "content": t["q"]}], tools=tools, tokenize=False,
                                      add_generation_prompt=True, enable_thinking=True)
-    base_text, _, _ = policy.sample_with_logprobs(prompt, seed=1)
-    print("CHECK base generate ok:", repr(base_text[:80]), flush=True)
-
     torch.manual_seed(0)
     model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16).to("cuda")
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.0, task_type="CAUSAL_LM",
@@ -52,6 +48,10 @@ def main():
     model.eval()
     d = tempfile.mkdtemp()
     model.save_pretrained(d)
+    # engine after the HF load (vLLM's config registration breaks a later HF from_pretrained of Qwen3.5)
+    policy = VLLMPolicy(a.model, max_new_tokens=128, gpu_memory_utilization=0.35, max_lora_rank=max(16, a.lora_r))
+    base_text, _, _ = policy.sample_with_logprobs(prompt, seed=1)
+    print("CHECK base generate ok:", repr(base_text[:80]), flush=True)
     policy.set_adapter(d, 1)
     text, gen_ids, v_lp = policy.sample_with_logprobs(prompt, seed=2)
     print("CHECK adapter generate ok:", repr(text[:80]), f"({len(gen_ids)} tokens)", flush=True)
