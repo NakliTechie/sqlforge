@@ -118,6 +118,27 @@ def regression() -> str | None:
     return None
 
 
+def archive_adapters(st: dict, dry: bool) -> None:
+    """Copy the adapter of every 20th-step checkpoint to saves/ before the VM's keep-3 pruning deletes it, so the
+    climb can be re-evaluated later on a harder set (the step-0 held-out set is near ceiling: 0.90)."""
+    r = sh("gcloud", "storage", "ls", f"{BUCKET}/ckpt/")
+    for line in r.stdout.split():
+        name = line.rstrip("/").rsplit("/", 1)[-1]
+        if not name.startswith("step") or not name[4:].isdigit():
+            continue
+        n = int(name[4:])
+        if n % 20 or name in st.setdefault("archived", []):
+            continue
+        if dry:
+            log(f"[dry-run] would archive {name}")
+            continue
+        ok = sh("gcloud", "storage", "cp", f"{BUCKET}/ckpt/{name}/adapter_model.safetensors",
+                f"{BUCKET}/ckpt/{name}/adapter_config.json", f"{BUCKET}/saves/{name}/").returncode == 0
+        if ok:
+            st["archived"].append(name)
+            log(f"archived {name} → saves/{name}")
+
+
 def launch(n: int, dry: bool) -> str | None:
     name = f"{PREFIX}-{n}"
     for z in ZONES:
@@ -164,6 +185,7 @@ def main():
         reg = regression()
         if reg:
             stop(reg, 4, a.dry_run)
+        archive_adapters(st, a.dry_run)
         vms = [v for v in climb_vms() if v["status"] in ("RUNNING", "PROVISIONING", "STAGING")]
         latest = (gs_cat("ckpt/LATEST") or "none").strip()
         if not vms:
