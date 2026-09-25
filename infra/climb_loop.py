@@ -30,7 +30,7 @@ ZONES = ["us-central1-b", "us-central1-c", "us-central1-f", "us-east1-b", "us-ea
          "us-east5-a", "us-east5-b", "us-east5-c", "us-south1-a", "us-south1-b", "us-west1-a", "us-west1-b",
          "us-west1-c", "europe-west4-a", "europe-west4-b", "europe-west4-c", "europe-west1-b", "europe-west1-c",
          "asia-southeast1-a", "asia-southeast1-b", "asia-southeast1-c", "asia-south1-c"]
-CAP_USD = 40.0
+CAP_USD = 45.0  # raised from 40 by Chirag 2026-09-25 23:4x IST (200 steps ≈ 22 h ≈ $39 at 6.4 min/step)
 RATE = 1.80            # $/h, conservative spot g4-standard-48 (us-east1 1.72, us-central1 1.77)
 MAX_FAIL = 4
 REGRESS_DROP, REGRESS_FROM = 0.10, 50
