@@ -7,23 +7,12 @@ climb); a vLLM/SGLang policy plugs in with the same one method.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 
 import torch
 
 from harness.nudge import budget_note
-
-QWEN_CALL = re.compile(r"<tool_call>\s*<function=([^>]+)>(.*?)</function>\s*</tool_call>", re.S)
-QWEN_PARAM = re.compile(r"<parameter=([^>]+)>\n?(.*?)\n?</parameter>", re.S)
-
-
-def parse_calls(text: str) -> list[dict]:
-    out = []
-    for name, body in QWEN_CALL.findall(text):
-        args = {k: v for k, v in QWEN_PARAM.findall(body)}
-        out.append({"name": name.strip(), "args": args})
-    return out
+from harness.parse import EMPTY_TURN_NOTE, parse_calls, split_thinking, sql_in_answer
 
 
 @dataclass
@@ -54,16 +43,18 @@ class HFPolicy:
         return self.tok.decode(gen, skip_special_tokens=False)
 
 
-def tool_response_chunk(tok, obs: str) -> str:
-    """The template's text between an assistant turn's <|im_end|> and the next generation point."""
-    msgs = [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}, {"role": "tool", "content": obs}]
-    full = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+def reply_chunk(tok, role: str, content: str, think: bool) -> str:
+    """The template's text between an assistant turn's <|im_end|> and the next generation point, for a tool
+    observation (role="tool") or a harness note (role="user")."""
+    msgs = [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}, {"role": role, "content": content}]
+    full = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=think)
     return full[full.index("y<|im_end|>") + len("y<|im_end|>"):]
 
 
-def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int) -> Trajectory:
+def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int,
+                think: bool = True) -> Trajectory:
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
-    prompt = tok.apply_chat_template(msgs, tools=tools, tokenize=False, add_generation_prompt=True)
+    prompt = tok.apply_chat_template(msgs, tools=tools, tokenize=False, add_generation_prompt=True, enable_thinking=think)
     tr = Trajectory(segments=[(prompt, False)])
     eos = "<|im_end|>"
     while tr.turns < max_turns:
@@ -74,11 +65,16 @@ def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, 
         text = text[: text.index(eos) + len(eos)]
         tr.segments.append((text, True))
         tr.final_text = text
-        calls = parse_calls(text)
+        body = text[: -len(eos)]
+        thinking, answer = split_thinking(body) if think else ("", body)
+        calls = parse_calls(answer) or parse_calls(thinking)                   # harness/parse.py rule 1
         if not calls:
-            m = re.findall(r"```sql\s*(.*?)```", text, flags=re.S | re.I)
-            tr.submitted_sql = m[-1].strip() if m else None
-            return tr
+            sql = sql_in_answer(answer)                                        # rule 2
+            if sql:
+                tr.submitted_sql = sql
+                return tr
+            tr.segments.append((reply_chunk(tok, "user", EMPTY_TURN_NOTE + budget_note(max_turns - tr.turns), think), False))
+            continue                                                           # rule 3
         obs_parts = []
         for c in calls:
             tr.n_tool += 1
@@ -90,7 +86,7 @@ def run_episode(policy: HFPolicy, tok, system: str, question: str, tools: list, 
                 obs_parts.append(_fmt(cols, rows, err))
             else:
                 obs_parts.append(f"ERROR: unknown tool {c['name']}")
-        tr.segments.append((tool_response_chunk(tok, "\n\n".join(obs_parts) + budget_note(max_turns - tr.turns)), False))
+        tr.segments.append((reply_chunk(tok, "tool", "\n\n".join(obs_parts) + budget_note(max_turns - tr.turns), think), False))
     tr.hit_cap = True
     return tr
 

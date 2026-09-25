@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--taskfile", default="", help="JSON list of tasks (e.g. lab/synth_tasks.json) instead of the fixed set")
     ap.add_argument("--sample", type=int, default=0, help="random sample of K tasks (seeded) from the task set")
     ap.add_argument("--max-turns", type=int, default=MAX_TURNS, help="rollout turn cap (episode ends NOSUBMIT at the cap)")
+    ap.add_argument("--no-think", dest="think", action="store_false", help="Ollama think=false; default on")
     a = ap.parse_args()
     ids = [s for s in a.tasks.split(",") if s]
     pool = json.load(open(a.taskfile)) if a.taskfile else tasks.TASKS
@@ -56,7 +57,7 @@ def main():
                 continue
             ts = time.time()
             ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
-                             max_turns=a.max_turns, num_ctx=NUM_CTX)
+                             max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think)
             sql = ep["submitted_sql"]
             res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
             row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
@@ -73,7 +74,7 @@ def main():
             print(f"{t['id']:7s} s{seed} {'PASS' if row['pass'] else 'fail@' + str(row['gate']):12s} turns={row['turns']:2d} runs={row['n_run_sql']:2d} {row['secs']}s", flush=True)
     n = len(eps)
     summary = {
-        "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
+        "tag": a.tag, "model": a.model, "max_turns": a.max_turns, "think": a.think, "n_episodes": n, "wall_min": round((time.time() - t0) / 60, 1),
         "exec_acc": round(sum(e["pass"] for e in eps) / n, 4),
         "turn_cap_rate": round(sum(e["hit_cap"] for e in eps) / n, 4),
         "no_submit_rate": round(sum(e["sql"] is None for e in eps) / n, 4),

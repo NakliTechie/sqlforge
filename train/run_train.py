@@ -42,14 +42,14 @@ def make_run_sql(schema):
     return run_sql
 
 
-def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed: int) -> dict:
+def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed: int, think: bool) -> dict:
     """One rollout per held-out task with the current policy; returns the runner-style summary."""
     torch.manual_seed(seed)
     policy.model.eval()
     rows = []
     for task in eval_tasks:
         system = system_tpl.replace("{ddl}", task["ddl"].strip())
-        tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=max_turns)
+        tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=max_turns, think=think)
         res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
         rows.append({"hops": task["hops"], "pass": bool(res["pass"]), "hit_cap": tr.hit_cap, "turns": tr.turns})
     n = len(rows)
@@ -68,7 +68,9 @@ def main():
     ap.add_argument("--tasks-per-step", type=int, default=4)
     ap.add_argument("--group", type=int, default=8)
     ap.add_argument("--max-turns", type=int, default=25)
-    ap.add_argument("--max-new-tokens", type=int, default=512)
+    ap.add_argument("--max-new-tokens", type=int, default=2048, help="per-turn cap; matches harness/loop.py NUM_PREDICT")
+    ap.add_argument("--no-think", dest="think", action="store_false",
+                    help="disable Qwen thinking (template enable_thinking=False); default on, matching lab.run")
     ap.add_argument("--lr", type=float, default=1e-5)
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--alpha", type=float, default=0.1, help="success-gated log-length penalty; 0 disables")
@@ -109,7 +111,7 @@ def main():
         if not a.eval_every:
             return
         t0 = time.time()
-        row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seed=a.eval_seed),
+        row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seed=a.eval_seed, think=a.think),
                "secs": round(time.time() - t0, 1)}
         torch.manual_seed(a.seed + step)  # eval sampling must not perturb the training stream
         print(json.dumps(row), flush=True)
@@ -125,7 +127,7 @@ def main():
             trajs, rewards = [], []
             model.eval()
             for g in range(a.group):
-                tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=a.max_turns)
+                tr = run_episode(policy, tok, system, task["q"], tools, make_run_sql(task["schema"]), max_turns=a.max_turns, think=a.think)
                 res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
                 r = shaped_reward(res["pass"], tr.submitted_sql is not None, tr.gen_chars(), a.target_chars, a.alpha,
                                   a.no_submit_reward)

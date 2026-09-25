@@ -1,12 +1,12 @@
 """Harness v0 — the writable surface. Talks to Ollama, formats observations, decides when the
 episode ends. It never touches hidden snapshots; run_sql is a callable handed in by the lockbox."""
 import json
-import re
 from pathlib import Path
 
 import requests
 
 from harness.nudge import budget_note
+from harness.parse import EMPTY_TURN_NOTE, parse_calls, sql_in_answer
 
 HERE = Path(__file__).parent
 OLLAMA = "http://localhost:11434/api/chat"
@@ -26,13 +26,9 @@ def _fmt_obs(cols, rows, err):
     return (head + "\n" + body + more)[:OBS_CHARS]
 
 
-def _sql_from_text(text: str):
-    m = re.findall(r"```sql\s*(.*?)```", text, flags=re.S | re.I)
-    return m[-1].strip() if m else None
-
 
 def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_turns: int, num_ctx: int,
-                temperature: float = 0.6) -> dict:
+                temperature: float = 0.6, think: bool = True) -> dict:
     system = (HERE / "system.md").read_text().replace("{ddl}", ddl.strip())
     tools = json.loads((HERE / "tools.json").read_text())
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
@@ -41,7 +37,7 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
     while turns < max_turns:
         turns += 1
         try:
-            r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
+            r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False, "think": think,
                                             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx, "num_predict": NUM_PREDICT}},
                               timeout=600)
         except requests.exceptions.RequestException as e:
@@ -53,7 +49,7 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
             trace.append({"role": "error", "content": r.text[:300]})
             break
         if r.status_code != 200:
-            r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False,
+            r = requests.post(OLLAMA, json={"model": model, "messages": msgs, "tools": tools, "stream": False, "think": think,
                                             "options": {"temperature": temperature, "seed": seed, "num_ctx": num_ctx, "num_predict": NUM_PREDICT}},
                               timeout=600)
             if r.status_code != 200:
@@ -62,13 +58,20 @@ def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_
         msg = r.json()["message"]
         msgs.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls")})
         trace.append({k: v for k, v in msg.items() if k in ("role", "thinking", "content", "tool_calls")})
-        calls = msg.get("tool_calls") or []
+        calls = [{"name": c["function"]["name"], "args": c["function"].get("arguments") or {}}
+                 for c in (msg.get("tool_calls") or [])]
+        calls = calls or parse_calls(msg.get("content")) or parse_calls(msg.get("thinking"))  # harness/parse.py rule 1
         if not calls:
-            submitted, via = _sql_from_text(msg.get("content") or ""), "text"
-            break
+            sql = sql_in_answer(msg.get("content"))                                          # rule 2
+            if sql:
+                submitted, via = sql, "text"
+                break
+            msgs.append({"role": "user", "content": EMPTY_TURN_NOTE + budget_note(max_turns - turns)})  # rule 3
+            trace.append(msgs[-1])
+            continue
         done, obs_parts = False, []
         for c in calls:
-            fn, args = c["function"]["name"], c["function"].get("arguments") or {}
+            fn, args = c["name"], c["args"]
             sql = args.get("sql", "") if isinstance(args, dict) else ""
             if fn == "submit":
                 submitted, via, done = sql, "tool", True

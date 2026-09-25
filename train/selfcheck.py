@@ -47,6 +47,69 @@ def check_nudge():
     print("OK budget_note")
 
 
+def check_turn_rule(model_name: str):
+    """harness/parse.py rule, exercised through BOTH harnesses on the same scripted turns:
+    t1 thinking-only with SQL in the thinking → not a submission, harness note, episode continues;
+    t2 tool call written inside the thinking → executed; t3 submit → gold passes."""
+    import json as _json
+    from unittest import mock
+
+    import harness.loop as L
+    from harness import parse
+    from lab import schemas, tasks, verify
+    from train.rollout import run_episode as hf_episode, tokenize_trajectory
+    from transformers import AutoTokenizer
+
+    assert parse.split_thinking("a ```sql\nX\n``` b</think>\n\nans") == ("a ```sql\nX\n``` b", "ans")
+    assert parse.split_thinking("cut mid-thought") == ("cut mid-thought", "")
+    assert parse.sql_in_answer("no sql here") is None and parse.sql_in_answer("```sql\nSELECT 2\n```") == "SELECT 2"
+    assert parse.parse_calls("x<tool_call>\n<function=run_sql>\n<parameter=sql>\nSELECT 1\n</parameter>\n</function>\n</tool_call>") \
+        == [{"name": "run_sql", "args": {"sql": "SELECT 1"}}]
+
+    t = tasks.TASKS[0]
+    gold = t["gold"][0]
+    con = schemas.build(t["schema"], tasks.VISIBLE_SEED)
+    def run_sql(q):
+        try:
+            c, r = verify.execute(con, q); return c, r, None
+        except verify.ExecError as e:
+            return [], [], str(e)
+    xml_call = "<tool_call>\n<function=run_sql>\n<parameter=sql>\nSELECT 1\n</parameter>\n</function>\n</tool_call>"
+
+    # Ollama harness
+    script = [{"thinking": "plan:\n```sql\nSELECT 42\n```\nlet me test first", "content": ""},
+              {"thinking": "run it " + xml_call, "content": ""},
+              {"thinking": "done", "content": "", "tool_calls": [{"function": {"name": "submit", "arguments": {"sql": gold}}}]}]
+    class R:
+        status_code, text = 200, ""
+        def __init__(self, m): self.m = m
+        def json(self): return {"message": {"role": "assistant", **self.m}}
+    it = iter(script)
+    with mock.patch.object(L.requests, "post", side_effect=lambda *a, **k: R(next(it))):
+        ep = L.run_episode(t["ddl"], t["q"], run_sql, model="m", seed=1, max_turns=10, num_ctx=4096)
+    roles = [m["role"] for m in ep["trace"]]
+    assert ep["submitted_sql"] == gold and ep["via"] == "tool" and ep["turns"] == 3 and ep["n_run_sql"] == 1, ep
+    assert roles == ["user", "assistant", "user", "assistant", "tool", "assistant"], roles
+    assert ep["trace"][2]["content"].startswith(parse.EMPTY_TURN_NOTE)
+
+    # HF training harness, same turns as raw Qwen text (prompt ends in '<think>\n')
+    tok = AutoTokenizer.from_pretrained(model_name)
+    submit_xml = "<tool_call>\n<function=submit>\n<parameter=sql>\n" + gold + "\n</parameter>\n</function>\n</tool_call>"
+    raw = iter(["plan:\n```sql\nSELECT 42\n```\nlet me test first\n</think>\n\n<|im_end|>",
+                "run it " + xml_call + "\n</think>\n\n<|im_end|>",
+                "done\n</think>\n\n" + submit_xml + "<|im_end|>"])
+    class P:
+        def generate(self, prompt): return next(raw)
+    tools = _json.loads(open("harness/tools.json").read())
+    tr = hf_episode(P(), tok, "S", t["q"], tools, run_sql, max_turns=10, think=True)
+    assert tr.submitted_sql == gold and tr.turns == 3 and not tr.hit_cap, (tr.submitted_sql, tr.turns)
+    gen = [txt for txt, g in tr.segments if g]
+    assert len(gen) == 3 and parse.EMPTY_TURN_NOTE in tr.segments[2][0]
+    ids, mask = tokenize_trajectory(tok, tr)
+    assert tok.decode(ids[mask.bool()]) == "".join(gen)
+    print("OK turn rule (loop.py and rollout.py agree: note, thinking-call, submit)")
+
+
 def check_logprobs(model_name: str, device: str):
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM
@@ -94,6 +157,7 @@ def main():
     a = ap.parse_args()
     check_reward()
     check_nudge()
+    check_turn_rule(a.model)
     check_logprobs(a.model, a.device)
     print("ALL OK")
 
