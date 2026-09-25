@@ -25,6 +25,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3.5-0.8B")
     ap.add_argument("--lora-r", type=int, default=16)
+    ap.add_argument("--lora-mode", default="remap", choices=["remap", "textonly"])
     a = ap.parse_args()
 
     from peft import LoraConfig, get_peft_model
@@ -49,7 +50,8 @@ def main():
     d = tempfile.mkdtemp()
     model.save_pretrained(d)
     # engine after the HF load (vLLM's config registration breaks a later HF from_pretrained of Qwen3.5)
-    policy = VLLMPolicy(a.model, max_new_tokens=128, gpu_memory_utilization=0.35, max_lora_rank=max(16, a.lora_r))
+    policy = VLLMPolicy(a.model, max_new_tokens=128, gpu_memory_utilization=0.35, max_lora_rank=max(16, a.lora_r),
+                        lora_mode=a.lora_mode)
     base_text, _, _ = policy.sample_with_logprobs(prompt, seed=1)
     print("CHECK base generate ok:", repr(base_text[:80]), flush=True)
     policy.set_adapter(d, 1)
@@ -67,7 +69,7 @@ def main():
     v = torch.tensor(v_lp)
     gap = (v - hf_lp).abs().mean().item()
     adapter_effect = (hf_lp - base_lp).abs().mean().item()
-    res = {"tokens": len(gen_ids), "mean_abs_gap_vllm_vs_hf": round(gap, 4), "adapter_effect_hf": round(adapter_effect, 4),
+    res = {"lora_mode": a.lora_mode, "tokens": len(gen_ids), "mean_abs_gap_vllm_vs_hf": round(gap, 4), "adapter_effect_hf": round(adapter_effect, 4),
            "vllm_mean_lp": round(v.mean().item(), 4), "hf_mean_lp": round(hf_lp.mean().item(), 4)}
     ok = gap < 0.03 and adapter_effect > 5 * gap
     print("CHECK", json.dumps(res), "PASS" if ok else "FAIL", flush=True)

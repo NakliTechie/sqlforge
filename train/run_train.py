@@ -72,6 +72,8 @@ def main():
                     help="hf = serial HF generate (laptop/MPS); vllm = batched vLLM engine on the same GPU (train/vllm_policy.py)")
     ap.add_argument("--vllm-mem", type=float, default=0.35, help="fraction of GPU memory for the vLLM engine")
     ap.add_argument("--vllm-eager", action="store_true", help="skip torch.compile/CUDA graphs: faster start, slower decode")
+    ap.add_argument("--vllm-lora-mode", default="remap", choices=["remap", "textonly"],
+                    help="how the HF adapter reaches vLLM's Qwen3.5 (train/vllm_policy.py); pick what train.check_vllm passes")
     ap.add_argument("--no-think", dest="think", action="store_false",
                     help="disable Qwen thinking (template enable_thinking=False); default on, matching lab.run")
     ap.add_argument("--lr", type=float, default=1e-5)
@@ -105,7 +107,7 @@ def main():
         # load afterwards fails with "'Qwen3_5Config' object has no attribute 'vocab_size'" (GCP runs gpu2/gpu3, 2026-09-25)
         from train.vllm_policy import VLLMPolicy
         policy = VLLMPolicy(a.model, max_new_tokens=a.max_new_tokens, gpu_memory_utilization=a.vllm_mem,
-                            max_lora_rank=max(16, a.lora_r), enforce_eager=a.vllm_eager)
+                            max_lora_rank=max(16, a.lora_r), enforce_eager=a.vllm_eager, lora_mode=a.vllm_lora_mode)
 
     pool = json.load(open(a.tasks))
     system_tpl = (HARNESS / "system.md").read_text()
