@@ -3,6 +3,7 @@
 #   sky launch -c sqlforge-smoke infra/gcp-smoke.yaml --down -i 20 -y
 # The SkyPilot API server must run with GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_QUOTA_PROJECT = sqlforge-bf3e24
 # (~/Code/infra/gcp/README.md). RTX PRO 6000 comes with g4-standard-48; do not pass --gpus (catalog bug).
+# Needs the local g4 hyperdisk patch to SkyPilot 0.13.0 (~/Code/infra/gcp/skypilot-0.13.0-g4-disk.patch).
 name: sqlforge-smoke
 resources:
   infra: gcp/us-east1
