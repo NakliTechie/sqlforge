@@ -9,7 +9,7 @@ Every POLL seconds:
                                          checkpoint → alert, exit 5
 Spend = finished VM lives (GCP operation log, ~/Code/infra/gcp/usage.py) + running VM elapsed × rate.
 
-  nohup python3 infra/climb_loop.py > ~/.claude/delegations/sqlforge/climb1-loop.out 2>&1 &
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.chiragpatnaik.sqlforge-climb1-loop.plist   # survives reboots
   python3 infra/climb_loop.py --dry-run --once      # print decisions, launch nothing
 """
 from __future__ import annotations
@@ -95,8 +95,8 @@ def stop(reason: str, code: int, dry: bool):
     if not dry:
         sh("bash", "-c", f"echo '{reason} {now_ist()}' | gcloud storage cp - {BUCKET}/STOP")
     delete_vms(dry)
-    alert(reason)
-    sys.exit(code)
+    alert(f"{reason} (code {code})")
+    sys.exit(0)
 
 
 def regression() -> str | None:
@@ -173,12 +173,12 @@ def main():
     while True:
         if gs_cat("DONE") is not None:
             alert("climb 1 finished (DONE marker)")
-            sys.exit(0)
+            sys.exit(0)  # deliberate stops exit 0: launchd (KeepAlive SuccessfulExit=false) restarts only crashes/reboots
         marker = gs_cat("STOP")
         if marker is not None:
             delete_vms(a.dry_run)
             alert(f"stopped by STOP marker: {marker.strip()}")
-            sys.exit(1)
+            sys.exit(0)
         usd = spend()
         if usd >= CAP_USD:
             stop(f"spend cap reached: ${usd} >= ${CAP_USD}", 3, a.dry_run)
@@ -193,7 +193,7 @@ def main():
                 st["fails"] = st["fails"] + 1 if latest == st["latest_at_launch"] else 0
             if st["fails"] >= MAX_FAIL:
                 alert(f"{st['fails']} VM lives in a row made no checkpoint progress (LATEST={latest}); loop exiting")
-                sys.exit(5)
+                sys.exit(0)
             z = launch(st["launches"] + 1, a.dry_run)
             if z:
                 st.update(launches=st["launches"] + 1, latest_at_launch=latest, no_capacity_rounds=0)
