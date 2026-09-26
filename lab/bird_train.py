@@ -39,6 +39,7 @@ def main():
     ap.add_argument("--max-db-mb", type=float, default=400, help="skip databases larger than this (bucket sync cost)")
     ap.add_argument("--per-db", type=int, default=20, help="cap per database, for schema diversity")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--exclude", nargs="*", default=[], help="earlier candidate files; their question_ids are skipped")
     a = ap.parse_args()
     items = json.load(open(a.json))
     sizes = {p.parent.name: p.stat().st_size / 1e6 for p in Path(a.db_root).glob("*/*.sqlite")}
@@ -46,7 +47,10 @@ def main():
     for k, it in enumerate(items):
         it["question_id"] = it.get("question_id", k)
         it["proxy"] = difficulty_proxy(it["SQL"])
-    keep = [it for it in items if it["proxy"]["score"] >= a.min_score and sizes.get(it["db_id"], 1e9) <= a.max_db_mb]
+    done = {int(x["id"][2:]) for f in a.exclude for x in json.load(open(f))}
+    keep = [it for it in items if it["proxy"]["score"] >= a.min_score and sizes.get(it["db_id"], 1e9) <= a.max_db_mb
+            and it["question_id"] not in done]
+    print(f"excluded {len(done)} already-measured questions")
     print(f"score >= {a.min_score}: {len(keep)} of {len(items)} · score histogram all: "
           f"{dict(sorted(collections.Counter(min(it['proxy']['score'], 12) for it in items).items()))}")
     random.seed(a.seed); random.shuffle(keep)
