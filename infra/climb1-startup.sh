@@ -8,12 +8,14 @@ Z=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMet
 NAME=$(hostname)
 LIFE=$(date -u +%Y%m%dT%H%M%SZ)
 cd /opt 2>/dev/null || mkdir -p /opt
-RESTORED=0
+# restore-done marker is a FILE: the push loop below is a forked subshell, so a shell variable set after the fork is
+# never seen by it (2026-09-26: a RESTORED variable was invisible to the loop; no checkpoint synced during VM life 5)
+RESTORED_MARK=/opt/sq/.restored
 push() {
   gcloud storage cp /var/log/climb.log $B/vm-logs/$LIFE-$NAME.log >/dev/null 2>&1
   # ckpt sync only after restore, and never deleting bucket objects: on 2026-09-26 an early push with an empty local
   # ckpt dir + --delete-unmatched-destination-objects wiped the bucket's ckpt/ (LATEST, step40-60) — 5 lives lost
-  [ "$RESTORED" = 1 ] && [ -f /opt/sq/checkpoints/climb1/ckpt/LATEST ] && \
+  [ -f "$RESTORED_MARK" ] && [ -f /opt/sq/checkpoints/climb1/ckpt/LATEST ] && \
       gcloud storage rsync -r /opt/sq/checkpoints/climb1/ckpt $B/ckpt >/dev/null 2>&1
   for f in /opt/sq/runs/train-climb1.jsonl /opt/sq/runs/train-climb1-eval.jsonl; do
     [ -f "$f" ] && gcloud storage cp "$f" $B/runs/ >/dev/null 2>&1
@@ -45,7 +47,7 @@ if [ ! -f checkpoints/climb1/ckpt/LATEST ]; then
   fi
 fi
 for f in train-climb1.jsonl train-climb1-eval.jsonl; do gcloud storage cp $B/runs/$f runs/ >/dev/null 2>&1; done
-RESTORED=1
+touch "$RESTORED_MARK"
 echo "CLIMB restored LATEST=$(cat checkpoints/climb1/ckpt/LATEST 2>/dev/null || echo none) $(date -u +%H:%M:%SZ)"
 if [ ! -f checkpoints/climb1/ckpt/LATEST ] && [ -s runs/train-climb1.jsonl ]; then
   echo "CLIMB refusing to start from step 0 over an existing history"; tail -3 runs/train-climb1.jsonl | gcloud storage cp - $B/failed/$LIFE-no-ckpt.txt; exit 0
