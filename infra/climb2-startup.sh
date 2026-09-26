@@ -3,7 +3,8 @@
 # bucket, train with --resume, sync checkpoints + logs to the bucket every 60 s, write DONE on completion or a
 # FAILED marker on a crash, then delete the VM. infra/climb_loop.py (on the Mac) relaunches after preemption.
 exec > >(tee -a /var/log/climb.log) 2>&1
-B=gs://sqlforge-bf3e24-smoke/climb2
+ROOT=gs://sqlforge-bf3e24-smoke   # gcloud storage does not resolve ".." in gs:// paths: lives 1–2 (2026-09-27 01:14) synced nothing and aborted
+B=$ROOT/climb2
 Z=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/zone | awk -F/ '{print $NF}')
 NAME=$(hostname)
 LIFE=$(date -u +%Y%m%dT%H%M%SZ)
@@ -30,12 +31,12 @@ echo "CLIMB boot $(date -u +%H:%M:%SZ) zone=$Z life=$LIFE $(nvidia-smi --query-g
 mkdir -p /opt/sq && cd /opt/sq && gcloud storage cp $B/repo.tgz . && tar xzf repo.tgz && mkdir -p runs checkpoints/climb2/ckpt
 # data: the pool's SQLite files (TPC-H, TPC-DS, the BIRD-train databases the pool uses) + BIRD Mini-Dev for the steering eval
 mkdir -p data/tpch data/tpcds data/bird-train/train/train_databases data/bird-minidev/dev_databases
-gcloud storage cp $B/../tpch/tpch_sf0.1.sqlite data/tpch/ 2>&1 | grep -i error; gcloud storage cp $B/../tpcds/tpcds_sf0.1.sqlite data/tpcds/ 2>&1 | grep -i error
+gcloud storage cp $ROOT/tpch/tpch_sf0.1.sqlite data/tpch/ 2>&1 | grep -i error; gcloud storage cp $ROOT/tpcds/tpcds_sf0.1.sqlite data/tpcds/ 2>&1 | grep -i error
 for D in $(python3 -c "import json;print(' '.join(sorted({t['schema'] for t in json.load(open('lab/climb2_pool.json')) if t['set']=='birdtrain'})))"); do
   mkdir -p data/bird-train/train/train_databases/$D
-  gcloud storage cp "$B/../bird-train/train_databases/$D/$D.sqlite" data/bird-train/train/train_databases/$D/ 2>&1 | grep -i error
+  gcloud storage cp "$ROOT/bird-train/train_databases/$D/$D.sqlite" data/bird-train/train/train_databases/$D/ 2>&1 | grep -i error
 done
-gcloud storage rsync -r $B/../bird/dev_databases data/bird-minidev/dev_databases >/dev/null 2>&1
+gcloud storage rsync -r $ROOT/bird/dev_databases data/bird-minidev/dev_databases >/dev/null 2>&1
 echo "CLIMB data: tpch $(ls data/tpch | wc -l) tpcds $(ls data/tpcds | wc -l) birdtrain $(find data/bird-train -name '*.sqlite' | wc -l) minidev $(find data/bird-minidev -name '*.sqlite' | wc -l)"
 [ "$(find data/bird-train -name '*.sqlite' | wc -l)" -gt 40 ] || { echo "CLIMB abort: pool databases missing"; exit 0; }
 export HOME=/root PATH=/root/.local/bin:$PATH
