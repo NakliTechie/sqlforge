@@ -13,6 +13,7 @@ import json
 
 SOURCES = [  # (taskfile, pass@8 jsonl, set label)
     ("lab/birdtrain_cand.json", "runs/passk2/birdtrain-base.jsonl", "birdtrain"),
+    ("lab/birdtrain_cand2.json", "runs/passk3/birdtrain-base.jsonl", "birdtrain"),
     ("lab/tpcds_tasks.json", "runs/passk2/tpcds-base.jsonl", "tpcds"),
     ("lab/tpch_tasks.json", "runs/passk/tpch-base.jsonl", "tpch"),
 ]
@@ -25,7 +26,10 @@ def main():
     ap.add_argument("--hi", type=float, default=1.0, help="keep p_hat < hi")
     a = ap.parse_args()
     pool = []
+    import os
     for tf, jl, label in SOURCES:
+        if not os.path.exists(jl):
+            print(f"{label:10s} skipped: {jl} not measured yet"); continue
         tasks = json.load(open(tf))
         eps = [json.loads(l) for l in open(jl) if l.strip()]
         c = collections.Counter(e["task"] for e in eps if e.get("pass")); n = collections.Counter(e["task"] for e in eps)
