@@ -23,22 +23,26 @@ import sys
 import time
 from pathlib import Path
 
+# run name and spend cap come from the command line before anything else (they shape every constant below):
+#   python infra/climb_loop.py --run climb2 --cap 50 [--dry-run] [--once]
+RUN = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--run" and i + 1 < len(sys.argv)), "climb1")
+_CAP = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--cap" and i + 1 < len(sys.argv)), None)
 PROJECT = "sqlforge-bf3e24"
-BUCKET = "gs://sqlforge-bf3e24-smoke/climb1"
-PREFIX = "sqlforge-climb1"
+BUCKET = f"gs://sqlforge-bf3e24-smoke/{RUN}"
+PREFIX = f"sqlforge-{RUN}"
 ZONES = ["us-central1-b", "us-central1-c", "us-central1-f", "us-east1-b", "us-east1-d", "us-east4-b", "us-east4-c",
          "us-east5-a", "us-east5-b", "us-east5-c", "us-south1-a", "us-south1-b", "us-west1-a", "us-west1-b",
          "us-west1-c", "europe-west4-a", "europe-west4-b", "europe-west4-c", "europe-west1-b", "europe-west1-c",
          "asia-southeast1-a", "asia-southeast1-b", "asia-southeast1-c", "asia-south1-c"]
-CAP_USD = 45.0  # raised from 40 by Chirag 2026-09-25 23:4x IST (200 steps ≈ 22 h ≈ $39 at 6.4 min/step)
+CAP_USD = float(_CAP) if _CAP else 45.0  # climb 1: raised from 40 by Chirag 2026-09-25 23:4x IST (200 steps ≈ 22 h ≈ $39 at 6.4 min/step)
 RATE = 1.80            # $/h, conservative spot g4-standard-48 (us-east1 1.72, us-central1 1.77)
 MAX_FAIL = 4
 REGRESS_DROP, REGRESS_FROM = 0.10, 50
 POLL = 60
 STATE_DIR = Path.home() / ".claude/delegations/sqlforge"
-STATE = STATE_DIR / "climb1-loop.json"
-PIDFILE = STATE_DIR / "climb1-loop.pid"
-STARTUP = Path(__file__).resolve().parent / "climb1-startup.sh"
+STATE = STATE_DIR / f"{RUN}-loop.json"
+PIDFILE = STATE_DIR / f"{RUN}-loop.pid"
+STARTUP = Path(__file__).resolve().parent / f"{RUN}-startup.sh"
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 sys.path.insert(0, str(Path.home() / "Code/infra/gcp"))
 import usage  # noqa: E402
@@ -63,10 +67,10 @@ def gs_cat(path: str) -> str | None:
 
 def alert(msg: str) -> None:
     log(f"ALERT {msg}")
-    sh("osascript", "-e", f'display notification "{msg}" with title "climb1 loop" sound name "Glass"')
+    sh("osascript", "-e", f'display notification "{msg}" with title "{RUN} loop" sound name "Glass"')
     topic = os.environ.get("NTFY_TOPIC")
     if topic:
-        sh("curl", "-fsS", "-m", "10", "-d", f"climb1: {msg}", f"ntfy.sh/{topic}")
+        sh("curl", "-fsS", "-m", "10", "-d", f"{RUN}: {msg}", f"ntfy.sh/{topic}")
 
 
 def climb_vms() -> list[dict]:
@@ -100,7 +104,7 @@ def stop(reason: str, code: int, dry: bool):
 
 
 def regression() -> str | None:
-    txt = gs_cat("runs/train-climb1-eval.jsonl")
+    txt = gs_cat(f"runs/train-{RUN}-eval.jsonl")
     if not txt:
         return None
     rows = {}
@@ -161,6 +165,7 @@ def launch(n: int, dry: bool) -> str | None:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--run", default="climb1"); ap.add_argument("--cap", type=float, default=None)  # consumed above
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--once", action="store_true")
     a = ap.parse_args()
