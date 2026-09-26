@@ -50,12 +50,15 @@ def task_env(task, system_tpl, tools, db_dir):
     run read-only on their SQLite file, the prompt names SQLite, and verify by result match. --db-dir relocates db_path
     by schema name, as lab.run does (VM paths differ from the laptop's)."""
     if task.get("kind") == "spider2":
-        path = task["db_path"]
-        if db_dir:
+        if db_dir:  # relocate IN the task dict: verify_spider reads task["db_path"] too (climb-2 life 5 crashed in the
+            # step-0 eval with "unable to open database file" when only the tool's path was relocated, 2026-09-27)
             c = list(Path(db_dir).glob(f"{task['schema']}.sqlite")) + list(Path(db_dir).glob(f"**/{task['schema']}/{task['schema']}.sqlite"))
-            path = str(c[0]) if c else path
+            if c:
+                task["db_path"] = str(c[0])
+        if not Path(task["db_path"]).exists():
+            raise FileNotFoundError(f"{task['id']}: database {task['db_path']} not found (db_dir={db_dir!r})")
         return (system_tpl.replace("{ddl}", task["ddl"].strip()).replace("DuckDB", "SQLite"),
-                json.loads(json.dumps(tools).replace("DuckDB", "SQLite")), spider2.make_run_sql(path),
+                json.loads(json.dumps(tools).replace("DuckDB", "SQLite")), spider2.make_run_sql(task["db_path"]),
                 lambda sql: spider2.verify_spider(task, sql))
     return (system_tpl.replace("{ddl}", task["ddl"].strip()), tools, make_run_sql(task["schema"]),
             lambda sql: verify.verify(task, sql, fixed_tasks.HIDDEN_SEEDS))

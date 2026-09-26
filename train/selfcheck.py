@@ -231,6 +231,17 @@ def check_task_env(model_name: str):
     assert vf(SQLITE_CHECKS[ev[0]["id"]])["pass"] and not vf("select 1")["pass"]
     s2, *_ = task_env(tasks.TASKS[0], system_tpl, tools, "")
     assert "DuckDB" in s2, "synth tasks must keep DuckDB"
+    # --db-dir relocation must reach the verifier too: a task whose recorded db_path is bogus, relocated by schema name
+    import copy, shutil, tempfile
+    tmp = tempfile.mkdtemp(); shutil.copy(ev[0]["db_path"], f"{tmp}/{ev[0]['schema']}.sqlite")
+    moved = copy.deepcopy(ev[0]); moved["db_path"] = "/nonexistent/laptop/path.sqlite"
+    *_, vf2 = task_env(moved, system_tpl, tools, tmp)
+    assert moved["db_path"].startswith(tmp) and vf2(SQLITE_CHECKS[ev[0]["id"]])["pass"], "db_dir relocation did not reach verify"
+    try:
+        task_env(dict(moved, db_path="/nonexistent/x.sqlite", schema="nosuchschema"), system_tpl, tools, tmp); raise AssertionError("missing db must raise")
+    except FileNotFoundError:
+        pass
+    shutil.rmtree(tmp)
     call = lambda q: f"x</think>\n\n<tool_call>\n<function=submit>\n<parameter=sql>\n{q}\n</parameter>\n</function>\n</tool_call><|im_end|>"
     class P:  # seed is not visible in the prompt, so script by arrival order: the first len(ev) prompts are seed 1
         def __init__(self): self.n = 0
