@@ -17,6 +17,7 @@ trap finish EXIT
 echo "SPIDER boot $(date -u +%H:%M:%SZ) zone=$Z $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 mkdir -p /opt/sq && cd /opt/sq && gcloud storage cp $B/climb1/repo.tgz . && tar xzf repo.tgz && mkdir -p runs data/spider2-lite/localdb adapters
 gcloud storage rsync -r $B/spider2/localdb data/spider2-lite/localdb >/dev/null 2>&1; echo "SPIDER dbs $(ls data/spider2-lite/localdb | wc -l)"
+mkdir -p data/bird-minidev/dev_databases && gcloud storage rsync -r $B/bird/dev_databases data/bird-minidev/dev_databases >/dev/null 2>&1; echo "BIRD dbs $(find data/bird-minidev -name '*.sqlite' | wc -l)"
 export HOME=/root PATH=/root/.local/bin:$PATH
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q g++ >/dev/null 2>&1
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -36,12 +37,17 @@ for i in $(seq 1 180); do curl -sf localhost:8000/health >/dev/null && break; sl
 curl -sf localhost:8000/health >/dev/null || { echo "SPIDER vllm failed"; tail -30 /var/log/vllm.log; exit 0; }
 echo "SPIDER vllm healthy $(date -u +%H:%M:%SZ) models: $(curl -s localhost:8000/v1/models | python3 -c 'import sys,json;print([m["id"] for m in json.load(sys.stdin)["data"]])')"
 
-run(){ # $1 model name (base or adapter), $2 seeds, $3 tag
-  uv run python -m lab.run --backend openai --model "$1" --taskfile lab/spider2_sqlite.json --db-dir data/spider2-lite/localdb \
-    --seeds "$2" --max-turns 25 --parallel 135 --tag "$3" > runs/$3.log 2>&1
+run(){ # $1 model name (base or adapter), $2 seeds, $3 tag, $4 taskfile, $5 db-dir
+  uv run python -m lab.run --backend openai --model "$1" --taskfile "$4" --db-dir "$5" \
+    --seeds "$2" --max-turns 25 --parallel 160 --tag "$3" > runs/$3.log 2>&1
   echo "SPIDER $3 $(date -u +%H:%M:%SZ) $(grep -E '^METRIC exec_acc' runs/$3.log)"; push
 }
-run Qwen/Qwen3.5-4B 1,2,3 spider2-base
-for S in $(echo $LORA_ARGS | tr ' ' '\n' | cut -d= -f1); do run "$S" 1 "spider2-$S"; done
-LAST=$(echo $LORA_ARGS | tr ' ' '\n' | tail -1 | cut -d= -f1); [ -n "$LAST" ] && run "$LAST" 2,3 "spider2-$LAST-s23"
+ADAPTERS=$(echo $LORA_ARGS | tr ' ' '\n' | cut -d= -f1); LAST=$(echo "$ADAPTERS" | tail -1)
+for BENCH in "spider2 lab/spider2_sqlite.json data/spider2-lite/localdb" "bird lab/bird_minidev.json data/bird-minidev/dev_databases"; do
+  set -- $BENCH; NAME=$1; TF=$2; DBD=$3
+  [ -f "$TF" ] || { echo "SPIDER skip $NAME: no $TF"; continue; }
+  run Qwen/Qwen3.5-4B 1,2,3 "$NAME-base" "$TF" "$DBD"
+  for S in $ADAPTERS; do run "$S" 1 "$NAME-$S" "$TF" "$DBD"; done
+  [ -n "$LAST" ] && run "$LAST" 2,3 "$NAME-$LAST-s23" "$TF" "$DBD"
+done
 echo "SPIDER done $(date -u +%H:%M:%SZ)"

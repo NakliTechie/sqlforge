@@ -67,8 +67,9 @@ def main():
     def one(t, seed):
         ts = time.time()
         spider = t.get("kind") == "spider2"
-        if spider and a.db_dir:
-            t["db_path"] = str(Path(a.db_dir) / f"{t['schema']}.sqlite")
+        if spider and a.db_dir:  # flat (Spider 2.0) or nested <db>/<db>.sqlite (BIRD) layouts
+            cands = list(Path(a.db_dir).glob(f"{t['schema']}.sqlite")) + list(Path(a.db_dir).glob(f"**/{t['schema']}/{t['schema']}.sqlite"))
+            t["db_path"] = str(cands[0]) if cands else t["db_path"]
         run_sql = spider2.make_run_sql(t["db_path"]) if spider else make_run_sql(t["schema"])
         ep = run_episode(t["ddl"], t["q"], run_sql, model=a.model, seed=seed,
                          max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think,

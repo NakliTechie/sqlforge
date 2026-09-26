@@ -69,6 +69,14 @@ def verify_spider(task: dict, sql: str) -> dict:
         return out
     out["gates"]["G3"] = {"pass": True}
     rows = [tuple(0 if v is None else v for v in r) for r in rows]  # official normalize(): NaN/NULL → 0
+    if task.get("match") == "bird_ex":  # BIRD EX: set(pred rows) == set(gold rows); column order and duplicates matter
+        def key(r):
+            return tuple(verify._norm(v) for v in r)
+        gold = task["gold_results"][0]
+        ok = sorted(map(key, [tuple(0 if v is None else v for v in r) for r in gold["rows"]]), key=str) == sorted(map(key, rows), key=str)
+        out["gates"]["G4"] = {"pass": ok} if ok else {"pass": False, "msg": f"row set differs: gold {len(gold['rows'])} rows, pred {len(rows)} rows"}
+        out["pass"] = ok
+        return out
     for i, gold in enumerate(task["gold_results"]):
         cc = task["condition_cols"]
         if cc and isinstance(cc[0], list):  # per-gold condition cols
@@ -118,8 +126,35 @@ def build(repo: Path, db_dir: Path) -> list[dict]:
     return tasks
 
 
+def build_bird(json_path: Path, db_root: Path) -> list[dict]:
+    """BIRD Mini-Dev (500 SELECT-only SQLite questions from BIRD dev). Gold results are the gold SQL's rows on the one
+    database; match = BIRD execution accuracy (exact row set). The evidence hint is appended to the question, as in
+    BIRD's own prompts."""
+    items = json.loads(json_path.read_text())
+    assert {"db_id", "question", "SQL"} <= set(items[0]), sorted(items[0])
+    tasks, skipped = [], []
+    for k, it in enumerate(items):
+        db = it["db_id"]
+        db_path = next(iter(db_root.glob(f"**/{db}/{db}.sqlite")), None) or next(iter(db_root.glob(f"**/{db}.sqlite")), None)
+        if db_path is None:
+            skipped.append((db, "no db file")); continue
+        cols, rows, err = make_run_sql(str(db_path))(it["SQL"])
+        if err:
+            skipped.append((it.get("question_id", k), err[:80])); continue
+        q = it["question"] + (f"\n\nEvidence: {it['evidence']}" if it.get("evidence") else "")
+        tasks.append({"kind": "spider2", "match": "bird_ex", "id": f"bird{it.get('question_id', k):04d}", "schema": db,
+                      "db_path": str(db_path), "hops": {"simple": 1, "moderate": 2, "challenging": 3}.get(it.get("difficulty"), 0),
+                      "difficulty": it.get("difficulty"), "q": q, "ddl": schema_ddl(str(db_path)), "gold": [], "gold_sql": it["SQL"],
+                      "gold_results": [{"file": None, "cols": cols, "rows": [list(r) for r in rows]}],
+                      "condition_cols": [], "ignore_order": True, "external_knowledge": None})
+    if skipped:
+        print(f"skipped {len(skipped)}: {skipped[:5]}")
+    return tasks
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--bird-json", help="BIRD Mini-Dev JSON (mini_dev_sqlite.json); builds a BIRD task file instead")
     ap.add_argument("--repo", default="data/spider2-lite/repo")
     ap.add_argument("--db-dir", default="data/spider2-lite/localdb")
     ap.add_argument("--out", default="lab/spider2_sqlite.json")
@@ -136,8 +171,13 @@ def main():
                 print("FAIL", t["id"], json.dumps(res["gates"])[:200])
         print(f"gold SQL passes verify_spider: {ok}/{len(with_sql)} (of {len(tasks)} tasks)")
         sys.exit(0 if ok == len(with_sql) else 1)
-    tasks = build(Path(a.repo), Path(a.db_dir))
+    tasks = build_bird(Path(a.bird_json), Path(a.db_dir)) if a.bird_json else build(Path(a.repo), Path(a.db_dir))
     json.dump(tasks, open(a.out, "w"), indent=1)
+    if a.bird_json:
+        import collections
+        print(f"wrote {len(tasks)} BIRD tasks → {a.out} · difficulty {dict(collections.Counter(t['difficulty'] for t in tasks))} · "
+              f"dbs {len({t['schema'] for t in tasks})} · DDL chars median {sorted(len(t['ddl']) for t in tasks)[len(tasks)//2]}")
+        return
     docs = sum(1 for t in tasks if t["external_knowledge"])
     docs_in = sum(1 for t in tasks if t["external_knowledge"] and "Reference document" in t["q"])
     print(f"wrote {len(tasks)} tasks → {a.out} · golds/task min {min(len(t['gold_results']) for t in tasks)} max "
