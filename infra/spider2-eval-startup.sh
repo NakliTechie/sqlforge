@@ -56,4 +56,4 @@ for BENCH in "spider2 lab/spider2_sqlite.json data/spider2-lite/localdb" "bird l
   for S in $ADAPTERS; do run "$S" 1 "$BN-$S" "$TF" "$DBD"; done
   [ -n "$LAST" ] && run "$LAST" 2,3 "$BN-$LAST-s23" "$TF" "$DBD"
 done
-echo "SPIDER done $(date -u +%H:%M:%SZ)"
+echo "SPIDER done $(date -u +%H:%M:%SZ)" | tee >(gcloud storage cp - $OUT/DONE >/dev/null 2>&1)   # marker: bin/spot-relaunch stops on it
