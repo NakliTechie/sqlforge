@@ -11,3 +11,4 @@ runs/
 runs/
 .venv/
 checkpoints/
+data/

@@ -128,7 +128,12 @@ def _cell_eq(a, b) -> bool:
         return a is b
     if isinstance(a, float) and isinstance(b, float):
         return math.isclose(a, b, abs_tol=ABS_TOL)
-    return a == b
+    if a == b:
+        return True
+    try:  # Spider 2.0 vectors_match: numeric strings (gold CSVs store '70000') compare as numbers with abs_tol
+        return math.isclose(float(a), float(b), abs_tol=ABS_TOL)
+    except (TypeError, ValueError):
+        return False
 
 
 def _vec_match(g: list, p: list, ignore_order: bool) -> bool:

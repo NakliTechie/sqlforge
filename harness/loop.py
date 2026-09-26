@@ -92,9 +92,10 @@ def _assistant_msg(backend: str, content: str, calls: list[dict]) -> dict:
 
 
 def run_episode(ddl: str, question: str, run_sql, *, model: str, seed: int, max_turns: int, num_ctx: int,
-                temperature: float = 0.6, think: bool = True, backend: str = "ollama", url: str | None = None) -> dict:
-    system = (HERE / "system.md").read_text().replace("{ddl}", ddl.strip())
-    tools = json.loads((HERE / "tools.json").read_text())
+                temperature: float = 0.6, think: bool = True, backend: str = "ollama", url: str | None = None,
+                engine: str = "DuckDB") -> dict:
+    system = (HERE / "system.md").read_text().replace("{ddl}", ddl.strip()).replace("DuckDB", engine)
+    tools = json.loads((HERE / "tools.json").read_text().replace("DuckDB", engine))
     url = url or URLS[backend]
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": question}]
     trace = [{"role": "user", "content": question}]  # forensics copy: keeps thinking, which msgs drops

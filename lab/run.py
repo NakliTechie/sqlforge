@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from harness.loop import run_episode
-from lab import schemas, tasks, verify
+from lab import schemas, spider2, tasks, verify
 
 MODEL = "qwen3.5:4b"
 MAX_TURNS = 40
@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--backend", default="ollama", choices=["ollama", "openai"],
                     help="ollama = laptop /api/chat; openai = vLLM /v1/chat/completions (GPU)")
     ap.add_argument("--url", default=None, help="server endpoint; default per backend (harness/loop.py URLS)")
+    ap.add_argument("--db-dir", default="", help="spider2 tasks: directory holding the .sqlite files (overrides db_path)")
     ap.add_argument("--parallel", type=int, default=1,
                     help="episodes in flight at once; set OLLAMA_NUM_PARALLEL >= this on the server. Batched requests "
                          "are not bit-identical to serial ones, so compare parallel runs with parallel runs")
@@ -65,17 +66,26 @@ def main():
 
     def one(t, seed):
         ts = time.time()
-        ep = run_episode(t["ddl"], t["q"], make_run_sql(t["schema"]), model=a.model, seed=seed,
+        spider = t.get("kind") == "spider2"
+        if spider and a.db_dir:
+            t["db_path"] = str(Path(a.db_dir) / f"{t['schema']}.sqlite")
+        run_sql = spider2.make_run_sql(t["db_path"]) if spider else make_run_sql(t["schema"])
+        ep = run_episode(t["ddl"], t["q"], run_sql, model=a.model, seed=seed,
                          max_turns=a.max_turns, num_ctx=NUM_CTX, think=a.think,
-                         backend=a.backend, url=a.url)
+                         backend=a.backend, url=a.url, engine="SQLite" if spider else "DuckDB")
         sql = ep["submitted_sql"]
-        res = verify.verify(t, sql, tasks.HIDDEN_SEEDS) if sql else {"pass": False, "gates": {}}
+        if not sql:
+            res = {"pass": False, "gates": {}}
+        elif spider:
+            res = spider2.verify_spider(t, sql)
+        else:
+            res = verify.verify(t, sql, tasks.HIDDEN_SEEDS)
         row = {"task": t["id"], "hops": t["hops"], "seed": seed, "pass": res["pass"],
                "gate": None if res["pass"] else (verify.first_failed_gate(res) if sql else "NOSUBMIT"),
                "sql": sql, **{k: ep[k] for k in ("via", "turns", "n_run_sql", "hit_cap", "final_text")},
                "secs": round(time.time() - ts, 1)}
         (tdir / f"{t['id']}-s{seed}.json").write_text(json.dumps(
-            {"task": t["id"], "q": t["q"], "gold": t["gold"][0], "row": row, "trace": ep["trace"]}, indent=1, default=str))
+            {"task": t["id"], "q": t["q"], "gold": (t["gold"] or [t.get("gold_sql")])[0], "row": row, "trace": ep["trace"]}, indent=1, default=str))
         with lock:
             eps.append(row)
             with jl.open("a") as f:
