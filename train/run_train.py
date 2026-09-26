@@ -8,7 +8,7 @@ Every step: sample B tasks → G rollouts each with the current LoRA policy → 
 saves the adapter every --save-every steps.
 
 Held-out eval: at step 0 (baseline), every --eval-every steps and at the last step, the current policy runs
-the 30 hand-made tasks once each (seed --eval-seed) and the exec_acc / by-hops / cap-rate line goes to
+the eval tasks once per seed (--eval-seeds, default 1) and the exec_acc / by-hops / cap-rate line goes to
 runs/train-<tag>-eval.jsonl. --eval-every 0 disables.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ import torch
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from lab import schemas, tasks as fixed_tasks, verify
+from lab import schemas, spider2, tasks as fixed_tasks, verify
 from train.grpo import group_advantages, grpo_step, outcome_class, shaped_reward
 from train.rollout import Episode, HFPolicy, run_episodes, tokenize_trajectory
 
@@ -44,20 +44,43 @@ def make_run_sql(schema):
     return run_sql
 
 
-def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed: int, think: bool) -> dict:
-    """One rollout per held-out task with the current policy, all tasks batched; runner-style summary."""
-    torch.manual_seed(seed)
-    eps = [Episode(tok, system_tpl.replace("{ddl}", t["ddl"].strip()), t["q"], tools, make_run_sql(t["schema"]),
-                   max_turns=max_turns, think=think, seed=seed * 10_000 + i) for i, t in enumerate(eval_tasks)]
+def task_env(task, system_tpl, tools, db_dir):
+    """(system prompt, tools, run_sql, verify_fn) for one task. Synth tasks run on generated DuckDB snapshots and verify
+    through the G0–G4 ladder with hidden seeds. kind == "spider2" tasks (Spider 2.0, BIRD, TPC-H files; lab/spider2.py)
+    run read-only on their SQLite file, the prompt names SQLite, and verify by result match. --db-dir relocates db_path
+    by schema name, as lab.run does (VM paths differ from the laptop's)."""
+    if task.get("kind") == "spider2":
+        path = task["db_path"]
+        if db_dir:
+            c = list(Path(db_dir).glob(f"{task['schema']}.sqlite")) + list(Path(db_dir).glob(f"**/{task['schema']}/{task['schema']}.sqlite"))
+            path = str(c[0]) if c else path
+        return (system_tpl.replace("{ddl}", task["ddl"].strip()).replace("DuckDB", "SQLite"),
+                json.loads(json.dumps(tools).replace("DuckDB", "SQLite")), spider2.make_run_sql(path),
+                lambda sql: spider2.verify_spider(task, sql))
+    return (system_tpl.replace("{ddl}", task["ddl"].strip()), tools, make_run_sql(task["schema"]),
+            lambda sql: verify.verify(task, sql, fixed_tasks.HIDDEN_SEEDS))
+
+
+def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seeds: list[int], think: bool, db_dir: str = "") -> dict:
+    """One rollout per held-out task per seed with the current policy, everything in one lockstep batch; runner-style
+    summary plus per-seed accuracy (single-seed numbers on 100–135 tasks span ±5 points — leg Experiments 8–9)."""
+    torch.manual_seed(seeds[0])
+    envs = [task_env(t, system_tpl, tools, db_dir) for t in eval_tasks]
+    eps, meta = [], []
+    for seed in seeds:
+        for i, (t, (system, tls, run_sql, _)) in enumerate(zip(eval_tasks, envs)):
+            eps.append(Episode(tok, system, t["q"], tls, run_sql, max_turns=max_turns, think=think, seed=seed * 10_000 + i))
+            meta.append((t, envs[i][3], seed))
     rows = []
-    for task, tr in zip(eval_tasks, run_episodes(policy, eps)):
-        res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
-        rows.append({"hops": task["hops"], "set": task.get("set", "all"), "pass": bool(res["pass"]),
+    for (task, verify_fn, seed), tr in zip(meta, run_episodes(policy, eps)):
+        res = verify_fn(tr.submitted_sql) if tr.submitted_sql else {"pass": False}
+        rows.append({"hops": task["hops"], "set": task.get("set", "all"), "seed": seed, "pass": bool(res["pass"]),
                      "hit_cap": tr.hit_cap, "turns": tr.turns, "submitted": tr.submitted_sql is not None})
     n = len(rows)
     hops = sorted({r["hops"] for r in rows})
     sets = sorted({r["set"] for r in rows})
     return {"exec_acc": round(sum(r["pass"] for r in rows) / n, 4),
+            "exec_acc_by_seed": {s: round(sum(r["pass"] for r in rows if r["seed"] == s) / len(eval_tasks), 4) for s in seeds},
             "exec_acc_by_set": {k: round(sum(r["pass"] for r in rows if r["set"] == k) / sum(1 for r in rows if r["set"] == k), 3) for k in sets},
             "no_submit_rate": round(sum(not r["submitted"] for r in rows) / n, 4),
             "exec_acc_by_hops": {h: round(sum(r["pass"] for r in rows if r["hops"] == h) / sum(1 for r in rows if r["hops"] == h), 3) for h in hops},
@@ -69,6 +92,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3.5-4B")
     ap.add_argument("--tasks", default="lab/synth_tasks.json")
+    ap.add_argument("--db-dir", default="", help="relocate kind=spider2 tasks' SQLite files by schema name (VM paths)")
+    ap.add_argument("--dyn-drop", type=int, default=0,
+                    help="dynamic sampling: drop a task from the active pool after K consecutive zero-variance groups (0 = off)")
+    ap.add_argument("--dyn-readmit", type=int, default=25, help="re-admit a dropped task after this many steps")
     ap.add_argument("--steps", type=int, default=200)
     ap.add_argument("--tasks-per-step", type=int, default=4)
     ap.add_argument("--group", type=int, default=8)
@@ -98,7 +125,7 @@ def main():
     ap.add_argument("--tag", default=time.strftime("%Y%m%d-%H%M%S"))
     ap.add_argument("--eval-every", type=int, default=25, help="held-out eval cadence in steps; 0 disables")
     ap.add_argument("--eval-tasks", default="", help="JSON task list for eval; default = the 30 hand-made tasks")
-    ap.add_argument("--eval-seed", type=int, default=1)
+    ap.add_argument("--eval-seeds", default="1", help="comma-separated; every seed runs on every eval task, in one batch")
     a = ap.parse_args()
 
     random.seed(a.seed)
@@ -129,6 +156,10 @@ def main():
     log = Path(f"runs/train-{a.tag}.jsonl")
     out_dir = Path(f"checkpoints/{a.tag}")
     eval_tasks = json.load(open(a.eval_tasks)) if a.eval_tasks else fixed_tasks.TASKS
+    eval_seeds = [int(s) for s in a.eval_seeds.split(",")]
+    for i, task in enumerate(pool):
+        task.setdefault("id", f"task{i}")
+    pool_state = {"zero_streak": {}, "dropped": {}}  # dynamic sampling state; persisted with each checkpoint
     eval_log = Path(f"runs/train-{a.tag}-eval.jsonl")
     ckpt_root = out_dir / "ckpt"
 
@@ -142,6 +173,7 @@ def main():
         torch.save({"step": step, "opt": opt.state_dict(), "py_random": random.getstate(),
                     "torch_rng": torch.get_rng_state(),
                     "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None}, d / "state.pt")
+        (d / "pool_state.json").write_text(json.dumps(pool_state))
         (ckpt_root / "LATEST.tmp").write_text(f"step{step}")
         (ckpt_root / "LATEST.tmp").replace(ckpt_root / "LATEST")
         for old in sorted(step_dirs(ckpt_root), key=lambda q: int(q.name[4:]))[:-3]:
@@ -181,7 +213,8 @@ def main():
         if not a.eval_every:
             return
         t0 = time.time()
-        row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seed=a.eval_seed, think=a.think),
+        row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seeds=eval_seeds,
+                                             think=a.think, db_dir=a.db_dir),
                "secs": round(time.time() - t0, 1)}
         torch.manual_seed(a.seed + step)  # eval sampling must not perturb the training stream
         model.eval()
@@ -195,7 +228,9 @@ def main():
         start = resumed[0] + 1
         if a.rollout == "vllm":
             policy.set_adapter(str(resumed[1].resolve()), resumed[0])
-        print(json.dumps({"resumed_from": resumed[0], "ckpt": str(resumed[1])}), flush=True)
+        if (resumed[1] / "pool_state.json").exists():
+            pool_state = json.loads((resumed[1] / "pool_state.json").read_text())
+        print(json.dumps({"resumed_from": resumed[0], "ckpt": str(resumed[1]), "pool_dropped": len(pool_state["dropped"])}), flush=True)
     model.eval()
     if start == 1:
         run_eval(0)
@@ -203,15 +238,24 @@ def main():
         t0 = time.time()
         batch, rewards_all, passes, nosub, turns, groups_kept = [], [], 0, 0, [], 0
         model.eval()
-        step_tasks = random.sample(pool, a.tasks_per_step)
-        eps = [Episode(tok, system_tpl.replace("{ddl}", task["ddl"].strip()), task["q"], tools, make_run_sql(task["schema"]),
-                       max_turns=a.max_turns, think=a.think, seed=a.seed * 1_000_000 + step * 1_000 + k * a.group + g)
-               for k, task in enumerate(step_tasks) for g in range(a.group)]
+        # dynamic sampling: tasks whose last K groups had one outcome class carry no gradient; rest them for R steps
+        for tid, at in list(pool_state["dropped"].items()):
+            if step - at >= a.dyn_readmit:
+                del pool_state["dropped"][tid]; pool_state["zero_streak"][tid] = 0
+        active = [t for t in pool if t["id"] not in pool_state["dropped"]]
+        if len(active) < a.tasks_per_step:  # pool exhausted: everything comes back
+            pool_state["dropped"].clear(); active = pool
+        step_tasks = random.sample(active, a.tasks_per_step)
+        envs = [task_env(task, system_tpl, tools, a.db_dir) for task in step_tasks]
+        eps = [Episode(tok, system, task["q"], tls, run_sql, max_turns=a.max_turns, think=a.think,
+                       seed=a.seed * 1_000_000 + step * 1_000 + k * a.group + g)
+               for k, (task, (system, tls, run_sql, _)) in enumerate(zip(step_tasks, envs)) for g in range(a.group)]
         all_trajs = run_episodes(policy, eps)  # every rollout of the step in one lockstep batch
         for k, task in enumerate(step_tasks):
+            verify_fn = envs[k][3]
             trajs, rewards = [], []
             for tr in all_trajs[k * a.group:(k + 1) * a.group]:
-                res = verify.verify(task, tr.submitted_sql, fixed_tasks.HIDDEN_SEEDS) if tr.submitted_sql else {"pass": False}
+                res = verify_fn(tr.submitted_sql) if tr.submitted_sql else {"pass": False}
                 r = shaped_reward(res["pass"], tr.submitted_sql is not None, tr.gen_chars(), a.target_chars, a.alpha,
                                   a.no_submit_reward)
                 trajs.append(tr)
@@ -221,7 +265,12 @@ def main():
                 turns.append(tr.turns)
             rewards_all.extend(rewards)
             if group_advantages([outcome_class(r) for r in rewards]) is None:  # one outcome class → no signal
+                z = pool_state["zero_streak"].get(task["id"], 0) + 1
+                pool_state["zero_streak"][task["id"]] = z
+                if a.dyn_drop and z >= a.dyn_drop:
+                    pool_state["dropped"][task["id"]] = step
                 continue
+            pool_state["zero_streak"][task["id"]] = 0
             adv = group_advantages(rewards)
             groups_kept += 1
             for tr, av in zip(trajs, adv):
@@ -239,6 +288,7 @@ def main():
         row = {"step": step, "reward_mean": round(sum(rewards_all) / n, 4), "pass_rate": round(passes / n, 4),
                "no_submit_rate": round(nosub / n, 4),
                "mean_turns": round(sum(turns) / n, 2), "groups_kept": groups_kept, "n_traj_in_batch": len(batch),
+               "pool_active": len(active) - sum(1 for t in step_tasks if t["id"] in pool_state["dropped"]),
                **{k: round(v, 5) for k, v in stats.items()}, "secs": round(time.time() - t0, 1)}
         print(json.dumps(row), flush=True)
         with log.open("a") as f:

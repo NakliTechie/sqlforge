@@ -211,6 +211,40 @@ def check_logprobs(model_name: str, device: str):
     print("OK sequence_logprobs")
 
 
+def check_task_env(model_name: str):
+    """run_train.task_env + evaluate on kind == "spider2" tasks (TPC-H SQLite file): the prompt names SQLite, run_sql hits
+    the file, verify_spider judges, and a 2-seed eval reports per-seed accuracy (seed 1 submits the gold, seed 2 junk)."""
+    import json as _json
+    from lab import tasks
+    from lab.tpch import SQLITE_CHECKS
+    from train.run_train import evaluate, task_env
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(model_name)
+    tools = _json.loads(open("harness/tools.json").read())
+    system_tpl = open("harness/system.md").read()
+    tp = {x["id"]: x for x in _json.load(open("lab/tpch_tasks.json"))}
+    ev = [tp[i] for i in SQLITE_CHECKS]
+    s, tl, run_sql, vf = task_env(ev[0], system_tpl, tools, "")
+    assert "SQLite" in s and "DuckDB" not in s and "DuckDB" not in _json.dumps(tl), "engine word not substituted"
+    cols, rows, err = run_sql("select count(*) from lineitem")
+    assert err is None and rows[0][0] == 600572, (cols, rows, err)
+    assert vf(SQLITE_CHECKS[ev[0]["id"]])["pass"] and not vf("select 1")["pass"]
+    s2, *_ = task_env(tasks.TASKS[0], system_tpl, tools, "")
+    assert "DuckDB" in s2, "synth tasks must keep DuckDB"
+    call = lambda q: f"x</think>\n\n<tool_call>\n<function=submit>\n<parameter=sql>\n{q}\n</parameter>\n</function>\n</tool_call><|im_end|>"
+    class P:  # seed is not visible in the prompt, so script by arrival order: the first len(ev) prompts are seed 1
+        def __init__(self): self.n = 0
+        def generate_batch(self, prompts, seeds):
+            out = []
+            for pr in prompts:
+                tid = next(i for i in SQLITE_CHECKS if tp[i]["q"][:60] in pr)
+                out.append(call(SQLITE_CHECKS[tid] if self.n < len(ev) else "select 1")); self.n += 1
+            return out
+    r = evaluate(P(), tok, system_tpl, tools, ev, max_turns=3, seeds=[1, 2], think=True)
+    assert r["n"] == 4 and r["exec_acc"] == 0.5 and r["exec_acc_by_seed"] == {1: 1.0, 2: 0.0}, r
+    print("OK task_env (spider2-kind tasks: SQLite prompt, file-backed run_sql, verify_spider; 2-seed eval 1.0 / 0.0)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen3.5-0.8B")
@@ -220,6 +254,7 @@ def main():
     check_nudge()
     check_turn_rule(a.model)
     check_batched_rollout(a.model)
+    check_task_env(a.model)
     check_logprobs(a.model, a.device)
     print("ALL OK")
 
