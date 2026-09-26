@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import shutil
 import time
 from pathlib import Path
@@ -131,6 +132,9 @@ def main():
     eval_log = Path(f"runs/train-{a.tag}-eval.jsonl")
     ckpt_root = out_dir / "ckpt"
 
+    def step_dirs(root):  # only stepN dirs; sibling artefacts (e.g. a 'step50-vllm' remap copy) crashed int() on 2026-09-26
+        return [q for q in root.glob("step*") if q.is_dir() and re.fullmatch(r"step\d+", q.name)]
+
     def save_ckpt(step):
         """stepN dir written completely first, LATEST pointer last; keep the newest 3."""
         d = ckpt_root / f"step{step}"
@@ -140,22 +144,24 @@ def main():
                     "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None}, d / "state.pt")
         (ckpt_root / "LATEST.tmp").write_text(f"step{step}")
         (ckpt_root / "LATEST.tmp").replace(ckpt_root / "LATEST")
-        for old in sorted(ckpt_root.glob("step*"), key=lambda q: int(q.name[4:]))[:-3]:
+        for old in sorted(step_dirs(ckpt_root), key=lambda q: int(q.name[4:]))[:-3]:
             shutil.rmtree(old, ignore_errors=True)
 
     def load_ckpt():
         """Newest complete checkpoint (LATEST if valid, else the highest stepN with state.pt), or None."""
         if not ckpt_root.exists():
             return None
-        cands = sorted(ckpt_root.glob("step*"), key=lambda q: int(q.name[4:]), reverse=True)
+        cands = sorted(step_dirs(ckpt_root), key=lambda q: int(q.name[4:]), reverse=True)
         ptr = ckpt_root / "LATEST"
         if ptr.exists():
             cands = [ckpt_root / ptr.read_text().strip()] + cands
         for d in cands:
-            if (d / "state.pt").exists() and (d / "adapter_model.safetensors").exists():
-                from peft import set_peft_model_state_dict
-                from safetensors.torch import load_file
-                set_peft_model_state_dict(model, load_file(str(d / "adapter_model.safetensors")))
+            if not (d / "adapter_model.safetensors").exists():
+                continue
+            from peft import set_peft_model_state_dict
+            from safetensors.torch import load_file
+            set_peft_model_state_dict(model, load_file(str(d / "adapter_model.safetensors")))
+            if (d / "state.pt").exists():
                 st = torch.load(d / "state.pt", weights_only=False)
                 opt.load_state_dict(st["opt"])
                 random.setstate(st["py_random"])
@@ -163,6 +169,12 @@ def main():
                 if st.get("cuda_rng") is not None and torch.cuda.is_available():
                     torch.cuda.set_rng_state_all(st["cuda_rng"])
                 return st["step"], d
+            # adapter-only (an archived save): weights resume, optimizer moments and RNG restart
+            step = int(d.name[4:])
+            random.seed(a.seed + step)
+            torch.manual_seed(a.seed + step)
+            print(json.dumps({"resumed_adapter_only": step, "ckpt": str(d)}), flush=True)
+            return step, d
         return None
 
     def run_eval(step):

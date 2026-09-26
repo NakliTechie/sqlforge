@@ -48,8 +48,9 @@ class VLLMPolicy:
 
     def set_adapter(self, path: str, version: int) -> None:
         from vllm.lora.request import LoRARequest
-        if self.lora_mode == "remap":
-            path = export_adapter(path, path.rstrip("/") + "-vllm")
+        if self.lora_mode == "remap":  # remapped copy goes under a dot-dir so it never pollutes checkpoint listings
+            src = path.rstrip("/")
+            path = export_adapter(src, os.path.join(os.path.dirname(src), ".vllm-remap", os.path.basename(src)))
         self.lora = LoRARequest(f"step{version}", version, path)
 
     def _params(self, seed, **kw):
