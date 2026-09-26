@@ -81,7 +81,7 @@ def verify_spider(task: dict, sql: str) -> dict:
         cc = task["condition_cols"]
         if cc and isinstance(cc[0], list):  # per-gold condition cols
             cc = cc[i] if i < len(cc) else cc[-1]
-        ok, msg = verify.compare(gold["cols"], [tuple(0 if v == "" else v for v in r) for r in gold["rows"]], cols, rows,
+        ok, msg = verify.compare(gold["cols"], [tuple(0 if v in ("", None) else v for v in r) for r in gold["rows"]], cols, rows,
                                  cc or None, task["ignore_order"])
         if ok:
             out["gates"]["G4"] = {"pass": True, "gold": i}
