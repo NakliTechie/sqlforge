@@ -1,0 +1,47 @@
+#!/bin/bash
+# Spider 2.0-Lite SQLite eval on GCP (spot RTX PRO 6000): base Qwen3.5-4B + every archived climb-1 adapter, via one
+# vLLM server with LoRA modules, lab.run --backend openai, all 135 tasks concurrent. Results → bucket; VM deletes itself.
+#   gcloud compute instances create sqlforge-spider2 ... --metadata-from-file startup-script=infra/spider2-eval-startup.sh
+# Needs the climb VM gone first (GPUS_ALL_REGIONS quota = 1).
+exec > >(tee -a /var/log/spider2.log) 2>&1
+B=gs://sqlforge-bf3e24-smoke
+OUT=$B/spider2/eval-$(date -u +%Y%m%dT%H%MZ)
+Z=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/zone | awk -F/ '{print $NF}')
+NAME=$(hostname)
+push(){ gcloud storage cp /var/log/spider2.log $OUT/spider2.log >/dev/null 2>&1
+        [ -d /opt/sq/runs ] && gcloud storage rsync -r /opt/sq/runs $OUT/runs >/dev/null 2>&1; }
+finish(){ echo "SPIDER finish $(date -u +%H:%M:%SZ)"; push; gcloud compute instances delete "$NAME" --zone "$Z" --quiet; }
+trap finish EXIT
+( while true; do sleep 90; push; done ) &
+
+echo "SPIDER boot $(date -u +%H:%M:%SZ) zone=$Z $(nvidia-smi --query-gpu=name --format=csv,noheader)"
+mkdir -p /opt/sq && cd /opt/sq && gcloud storage cp $B/climb1/repo.tgz . && tar xzf repo.tgz && mkdir -p runs data/spider2-lite/localdb adapters
+gcloud storage rsync -r $B/spider2/localdb data/spider2-lite/localdb >/dev/null 2>&1; echo "SPIDER dbs $(ls data/spider2-lite/localdb | wc -l)"
+export HOME=/root PATH=/root/.local/bin:$PATH
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q g++ >/dev/null 2>&1
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync 2>&1 | tail -1; uv pip install vllm ninja "transformers==5.17.0" 2>&1 | tail -1
+export PATH=/opt/sq/.venv/bin:$PATH UV_NO_SYNC=1
+
+# adapters: every archived save, remapped to vLLM's layout (train.vllm_policy.export_adapter)
+LORA_ARGS=""
+for S in $(gcloud storage ls $B/climb1/saves/ | sed -E 's|.*/(step[0-9]+)/$|\1|' | sort -t p -k2 -n); do
+  gcloud storage cp "$B/climb1/saves/$S/*" adapters/$S/ >/dev/null 2>&1
+  uv run python -c "from train.vllm_policy import export_adapter; export_adapter('adapters/$S', 'adapters/$S-vllm')" && LORA_ARGS="$LORA_ARGS $S=/opt/sq/adapters/$S-vllm"
+done
+echo "SPIDER adapters:$LORA_ARGS"
+vllm serve Qwen/Qwen3.5-4B --port 8000 --max-model-len 32768 --gpu-memory-utilization 0.85 --enable-lora --max-lora-rank 32 \
+  --max-loras 2 --lora-modules $LORA_ARGS --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 > /var/log/vllm.log 2>&1 &
+for i in $(seq 1 180); do curl -sf localhost:8000/health >/dev/null && break; sleep 5; done
+curl -sf localhost:8000/health >/dev/null || { echo "SPIDER vllm failed"; tail -30 /var/log/vllm.log; exit 0; }
+echo "SPIDER vllm healthy $(date -u +%H:%M:%SZ) models: $(curl -s localhost:8000/v1/models | python3 -c 'import sys,json;print([m["id"] for m in json.load(sys.stdin)["data"]])')"
+
+run(){ # $1 model name (base or adapter), $2 seeds, $3 tag
+  uv run python -m lab.run --backend openai --model "$1" --taskfile lab/spider2_sqlite.json --db-dir data/spider2-lite/localdb \
+    --seeds "$2" --max-turns 25 --parallel 135 --tag "$3" > runs/$3.log 2>&1
+  echo "SPIDER $3 $(date -u +%H:%M:%SZ) $(grep -E '^METRIC exec_acc' runs/$3.log)"; push
+}
+run Qwen/Qwen3.5-4B 1,2,3 spider2-base
+for S in $(echo $LORA_ARGS | tr ' ' '\n' | cut -d= -f1); do run "$S" 1 "spider2-$S"; done
+LAST=$(echo $LORA_ARGS | tr ' ' '\n' | tail -1 | cut -d= -f1); [ -n "$LAST" ] && run "$LAST" 2,3 "spider2-$LAST-s23"
+echo "SPIDER done $(date -u +%H:%M:%SZ)"
