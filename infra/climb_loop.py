@@ -179,7 +179,7 @@ def main():
     log(f"loop start (dry={a.dry_run}) cap=${CAP_USD} state={st}")
     while True:
         if gs_cat("DONE") is not None:
-            alert("climb 1 finished (DONE marker)")
+            alert(f"{RUN} finished (DONE marker)")
             sys.exit(0)  # deliberate stops exit 0: launchd (KeepAlive SuccessfulExit=false) restarts only crashes/reboots
         marker = gs_cat("STOP")
         if marker is not None:
