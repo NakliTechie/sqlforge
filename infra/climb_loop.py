@@ -76,7 +76,9 @@ def alert(msg: str) -> None:
 def climb_vms() -> list[dict]:
     r = sh("gcloud", "compute", "instances", "list", "--project", PROJECT, "--filter", f"name~^{PREFIX}",
            "--format", "json(name,zone.basename(),status,creationTimestamp)")
-    return json.loads(r.stdout or "[]") if r.returncode == 0 else []
+    if r.returncode != 0:  # a FAILED listing is not an EMPTY listing: on 2026-09-27 12:11 a transient gcloud failure read as
+        return None        # "no VM" and the loop created a duplicate climb VM (life 10) while life 9 was training
+    return json.loads(r.stdout or "[]")
 
 
 def spend() -> float:
@@ -191,7 +193,11 @@ def main():
         if reg:
             stop(reg, 4, a.dry_run)
         archive_adapters(st, a.dry_run)
-        vms = [v for v in climb_vms() if v["status"] in ("RUNNING", "PROVISIONING", "STAGING")]
+        listed = climb_vms()
+        if listed is None:
+            log("instance list failed; skipping this round (a failed listing must never trigger a relaunch)")
+            time.sleep(POLL); continue
+        vms = [v for v in listed if v["status"] in ("RUNNING", "PROVISIONING", "STAGING", "STOPPING")]
         latest = (gs_cat("ckpt/LATEST") or "none").strip()
         if not vms:
             if st["launches"] > 0:
