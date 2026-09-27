@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 
 import torch
@@ -73,13 +74,30 @@ def grpo_step(model, optimizer, batch: list[tuple[torch.Tensor, torch.Tensor, fl
     """batch: list of (ids, mask, advantage) for trajectories from non-degenerate groups. On-policy, one
     update per batch, so the importance ratio is 1 and the clipped objective reduces to -A * logp."""
     model.train()
-    optimizer.zero_grad(set_to_none=True)
-    total = 0.0
-    for ids, mask, adv in batch:
-        lp = sequence_logprobs(model, ids.to(device), mask.to(device))
-        loss = -(adv * lp) / len(batch)
-        loss.backward()
-        total += loss.item()
+    skip: set[int] = set()  # trajectories whose backward does not fit next to the vLLM engine (climb-2 life 9 died at
+    while True:             # step 146 on a 13.8 GiB allocation with 8 GiB free); the step proceeds without them
+        optimizer.zero_grad(set_to_none=True)
+        total, oom = 0.0, None
+        for i, (ids, mask, adv) in enumerate(batch):
+            if i in skip:
+                continue
+            try:
+                lp = sequence_logprobs(model, ids.to(device), mask.to(device))
+                loss = -(adv * lp) / len(batch)
+                loss.backward()
+                total += loss.item()
+            except torch.OutOfMemoryError:
+                oom = i
+                break
+        if oom is None:
+            break
+        skip.add(oom)
+        if device == "cuda" or str(device).startswith("cuda"):
+            torch.cuda.empty_cache()
+        print(json.dumps({"oom_skipped_trajectory": oom, "gen_tokens": int(batch[oom][1].sum()), "skipped_total": len(skip)}), flush=True)
+        if len(skip) == len(batch):
+            optimizer.zero_grad(set_to_none=True)
+            return {"loss": 0.0, "grad_norm": 0.0, "oom_skipped": len(skip)}
     gn = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     optimizer.step()
-    return {"loss": total, "grad_norm": float(gn)}
+    return {"loss": total, "grad_norm": float(gn), "oom_skipped": len(skip)}

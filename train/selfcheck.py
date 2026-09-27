@@ -219,6 +219,31 @@ def check_logprobs(model_name: str, device: str):
     print("OK sequence_logprobs")
 
 
+def check_oom_skip():
+    """grpo_step survives a trajectory whose backward raises OutOfMemoryError: it restarts the accumulation without it
+    and still steps the optimizer (climb-2 life 9 died at step 146 on such a trajectory, 2026-09-27)."""
+    import torch
+    from train import grpo
+    calls = {"n": 0}
+    def fake_logprobs(model, ids, mask):
+        calls["n"] += 1
+        if int(ids[0]) == 2:
+            raise torch.OutOfMemoryError("fake")
+        return (model.w * ids.float().sum()).sum() * 0 + model.w.sum() * 0.01
+    class M(torch.nn.Module):
+        def __init__(self): super().__init__(); self.w = torch.nn.Parameter(torch.ones(3))
+    m = M(); opt = torch.optim.SGD(m.parameters(), lr=0.1)
+    orig = grpo.sequence_logprobs; grpo.sequence_logprobs = fake_logprobs
+    try:
+        batch = [(torch.tensor([1, 1]), torch.tensor([1, 1]), 1.0), (torch.tensor([2, 2]), torch.tensor([1, 1]), -1.0),
+                 (torch.tensor([3, 3]), torch.tensor([1, 1]), 0.5)]
+        st = grpo.grpo_step(m, opt, batch, "cpu")
+    finally:
+        grpo.sequence_logprobs = orig
+    assert st["oom_skipped"] == 1 and calls["n"] == 4 and st["grad_norm"] > 0, st  # 1 OOM + 3 successful passes (restart)
+    print("OK oom skip (grpo_step restarts without the offending trajectory and still steps)")
+
+
 def check_task_env(model_name: str):
     """run_train.task_env + evaluate on kind == "spider2" tasks (TPC-H SQLite file): the prompt names SQLite, run_sql hits
     the file, verify_spider judges, and a 2-seed eval reports per-seed accuracy (seed 1 submits the gold, seed 2 junk)."""
@@ -274,6 +299,7 @@ def main():
     check_turn_rule(a.model)
     check_batched_rollout(a.model)
     check_task_env(a.model)
+    check_oom_skip()
     check_logprobs(a.model, a.device)
     print("ALL OK")
 

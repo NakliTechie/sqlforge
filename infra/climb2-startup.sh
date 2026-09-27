@@ -65,7 +65,7 @@ if [ ! -f checkpoints/climb2/ckpt/LATEST ] && [ -s runs/train-climb2.jsonl ]; th
 fi
 
 uv run python -m train.run_train --model Qwen/Qwen3.5-4B --tasks lab/climb2_pool.json --db-dir data --rollout vllm \
-  --vllm-lora-mode remap --vllm-mem 0.45 --steps 150 --tasks-per-step 8 --group 8 --max-turns 25 \
+  --vllm-lora-mode remap --vllm-mem 0.40 --steps 150 --tasks-per-step 8 --group 8 --max-turns 25 \
   --device cuda --dtype bf16 --lora-r 32 --lr 1e-5 --no-submit-reward -1 --dyn-drop 2 --dyn-readmit 25 \
   --eval-tasks lab/bird_challenging.json --eval-seeds 1,2,3 --eval-every 25 --ckpt-every 10 --save-every 1000 --tag climb2 --resume \
   > runs/train-climb2.log 2>&1
