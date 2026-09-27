@@ -134,6 +134,19 @@ def main():
             dst = "nosub" if ot["nosub"] / nt - ob["nosub"] / nb >= ot["wrong"] / nt - ob["wrong"] / nb else "wrong"
             trans[f"pass→{dst}"] += -gain
     print("transitions (task-rate mass):", {k: round(100 * v / len(ids), 2) for k, v in sorted(trans.items())})
+    # SQL shape of submitted queries (the "simplify" objective is not trained yet; this measures whether training moved it)
+    import re, statistics
+    def shape(sql):
+        s = re.sub(r"\s+", " ", sql or "").strip(); u = " " + s.upper() + " "
+        return {"chars": len(s), "joins": u.count(" JOIN "), "subq": u.count("(SELECT") + u.count("( SELECT"),
+                "cte": int(u.lstrip().startswith(" WITH") or u.startswith("WITH")), "window": int(" OVER (" in u or " OVER(" in u)}
+    for name, arm in (("base", base), ("treat", treat)):
+        for which, pred in (("passing", lambda e: e.get("pass")), ("all submitted", lambda e: e.get("sql"))):
+            S = [shape(e.get("sql")) for t in ids for e in arm[t] if pred(e) and e.get("sql")]
+            if S:
+                print(f"SQL shape {name:5s} {which:13s} n={len(S):4d} · chars median {statistics.median(x['chars'] for x in S):5.0f} "
+                      f"q3 {sorted(x['chars'] for x in S)[3*len(S)//4]:5.0f} · joins mean {sum(x['joins'] for x in S)/len(S):.2f} · "
+                      f"subqueries mean {sum(x['subq'] for x in S)/len(S):.2f} · CTE {sum(x['cte'] for x in S)/len(S):.2f} · window {sum(x['window'] for x in S)/len(S):.2f}")
 
 
 if __name__ == "__main__":
