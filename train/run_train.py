@@ -64,7 +64,8 @@ def task_env(task, system_tpl, tools, db_dir):
             lambda sql: verify.verify(task, sql, fixed_tasks.HIDDEN_SEEDS))
 
 
-def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seeds: list[int], think: bool, db_dir: str = "") -> dict:
+def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seeds: list[int], think: bool, db_dir: str = "",
+             per_task_log=None, eval_step: int = -1) -> dict:
     """One rollout per held-out task per seed with the current policy, everything in one lockstep batch; runner-style
     summary plus per-seed accuracy (single-seed numbers on 100–135 tasks span ±5 points — leg Experiments 8–9)."""
     torch.manual_seed(seeds[0])
@@ -78,7 +79,12 @@ def evaluate(policy, tok, system_tpl, tools, eval_tasks, *, max_turns: int, seed
     for (task, verify_fn, seed), tr in zip(meta, run_episodes(policy, eps)):
         res = verify_fn(tr.submitted_sql) if tr.submitted_sql else {"pass": False}
         rows.append({"hops": task["hops"], "set": task.get("set", "all"), "seed": seed, "pass": bool(res["pass"]),
-                     "hit_cap": tr.hit_cap, "turns": tr.turns, "submitted": tr.submitted_sql is not None})
+                     "hit_cap": tr.hit_cap, "turns": tr.turns, "submitted": tr.submitted_sql is not None,
+                     "task": task.get("id"), "schema": task.get("schema"), "overflow": getattr(tr, "context_overflow", False)})
+    if per_task_log is not None:  # per-task outcomes: paired, database-clustered analysis needs them (cold review 2026-09-27)
+        with open(per_task_log, "a") as f:
+            for r in rows:
+                f.write(json.dumps({"eval_step": eval_step, **r}) + "\n")
     n = len(rows)
     hops = sorted({r["hops"] for r in rows})
     sets = sorted({r["set"] for r in rows})
@@ -217,7 +223,8 @@ def main():
             return
         t0 = time.time()
         row = {"eval_step": step, **evaluate(policy, tok, system_tpl, tools, eval_tasks, max_turns=a.max_turns, seeds=eval_seeds,
-                                             think=a.think, db_dir=a.db_dir),
+                                             think=a.think, db_dir=a.db_dir, per_task_log=Path(f"runs/train-{a.tag}-eval-tasks.jsonl"),
+                                             eval_step=step),
                "secs": round(time.time() - t0, 1)}
         torch.manual_seed(a.seed + step)  # eval sampling must not perturb the training stream
         model.eval()

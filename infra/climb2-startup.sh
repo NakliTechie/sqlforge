@@ -18,7 +18,7 @@ push() {
   # ckpt dir + --delete-unmatched-destination-objects wiped the bucket's ckpt/ (LATEST, step40-60) — 5 lives lost
   [ -f "$RESTORED_MARK" ] && [ -f /opt/sq/checkpoints/climb2/ckpt/LATEST ] && \
       gcloud storage rsync -r /opt/sq/checkpoints/climb2/ckpt $B/ckpt >/dev/null 2>&1
-  for f in /opt/sq/runs/train-climb2.jsonl /opt/sq/runs/train-climb2-eval.jsonl; do
+  for f in /opt/sq/runs/train-climb2.jsonl /opt/sq/runs/train-climb2-eval.jsonl /opt/sq/runs/train-climb2-eval-tasks.jsonl; do
     [ -f "$f" ] && gcloud storage cp "$f" $B/runs/ >/dev/null 2>&1
   done
   [ -f /opt/sq/runs/train-climb2.log ] && gcloud storage cp /opt/sq/runs/train-climb2.log $B/runs/train-climb2-$LIFE.log >/dev/null 2>&1
@@ -57,7 +57,7 @@ if [ ! -f checkpoints/climb2/ckpt/LATEST ]; then
       && echo "$S" > checkpoints/climb2/ckpt/LATEST && echo "CLIMB restore fallback: adapter-only from saves/$S"
   fi
 fi
-for f in train-climb2.jsonl train-climb2-eval.jsonl; do gcloud storage cp $B/runs/$f runs/ >/dev/null 2>&1; done
+for f in train-climb2.jsonl train-climb2-eval.jsonl train-climb2-eval-tasks.jsonl; do gcloud storage cp $B/runs/$f runs/ >/dev/null 2>&1; done
 touch "$RESTORED_MARK"
 echo "CLIMB restored LATEST=$(cat checkpoints/climb2/ckpt/LATEST 2>/dev/null || echo none) $(date -u +%H:%M:%SZ)"
 if [ ! -f checkpoints/climb2/ckpt/LATEST ] && [ -s runs/train-climb2.jsonl ]; then
