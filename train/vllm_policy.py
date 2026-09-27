@@ -44,6 +44,7 @@ class VLLMPolicy:
                        enable_prefix_caching=True, gpu_memory_utilization=gpu_memory_utilization,
                        max_model_len=max_model_len, enforce_eager=enforce_eager, **extra)
         self.max_new_tokens, self.temperature, self.top_p, self.lora_mode = max_new_tokens, temperature, top_p, lora_mode
+        self.max_model_len = max_model_len  # read by train.rollout.run_episodes to end episodes that no longer fit
         self.lora = None
 
     def set_adapter(self, path: str, version: int) -> None:

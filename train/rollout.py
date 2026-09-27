@@ -25,6 +25,7 @@ class Trajectory:
     n_tool: int = 0
     submitted_sql: str | None = None
     hit_cap: bool = False
+    context_overflow: bool = False  # ended because the next turn would not fit the model context
     final_text: str = ""
 
     def gen_chars(self) -> int:
@@ -111,9 +112,18 @@ class Episode:
 
 
 def run_episodes(policy, episodes: list[Episode]) -> list[Trajectory]:
-    """Advance all episodes in lockstep: one batched generate per turn over the ones still running."""
+    """Advance all episodes in lockstep: one batched generate per turn over the ones still running.
+    Context guard: an episode whose prompt no longer leaves room for a full turn (policy.max_model_len, when the policy
+    has one) ends as a turn-cap, i.e. no submission. Real schemas + 25 thinking turns can exceed 32k tokens; on
+    2026-09-27 one such prompt raised vLLM's VLLMValidationError and killed climb-2 life 7 at step 50 (10 steps lost)."""
+    limit = getattr(policy, "max_model_len", None)
     while True:
         live = [e for e in episodes if not e.done()]
+        if limit:
+            for e in live:
+                if len(e.tok(e.prompt()).input_ids) + policy.max_new_tokens > limit:
+                    e.tr.hit_cap, e.tr.context_overflow, e._done = True, True, True
+            live = [e for e in live if not e.done()]
         if not live:
             return [e.tr for e in episodes]
         texts = policy.generate_batch([e.prompt() for e in live], [e.seed for e in live])

@@ -166,6 +166,14 @@ def check_batched_rollout(model_name: str):
         assert (b.submitted_sql, b.turns, b.hit_cap, b.segments) == (s.submitted_sql, s.turns, s.hit_cap, s.segments)
     assert [b.turns for b in batched] == [1, 2, 3] and batched[2].hit_cap and pb.calls == 3, [b.turns for b in batched]
     print("OK batched rollout (lockstep == one-at-a-time; 3 episodes, 3 generate calls)")
+    # context guard: a policy with max_model_len ends an episode whose prompt + max_new_tokens no longer fits, no generate call
+    class PL(P):
+        max_model_len, max_new_tokens = 10_000, 100
+    pl = PL(); big = run_episodes(pl, [Episode(tok, "S" * 60_000, "QA", tools, run_sql, max_turns=3, think=True)])[0]
+    assert big.hit_cap and big.context_overflow and big.submitted_sql is None and pl.calls == 0, (big.hit_cap, pl.calls)
+    ok = run_episodes(PL(), [Episode(tok, "S", "QA", tools, run_sql, max_turns=3, think=True)])[0]
+    assert ok.submitted_sql == "SELECT 1" and not ok.context_overflow
+    print("OK context guard (over-long prompt → hit_cap without a generate call; short prompt unaffected)")
 
 
 def check_logprobs(model_name: str, device: str):

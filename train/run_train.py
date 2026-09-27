@@ -298,10 +298,10 @@ def main():
             f.write(json.dumps(row) + "\n")
         if step % a.save_every == 0 or step == a.steps:
             model.save_pretrained(out_dir / f"step{step}")
+        if step % a.ckpt_every == 0 or step == a.steps:  # checkpoint BEFORE the eval: a crash inside the step-50 eval
+            save_ckpt(step)                                # cost climb-2 life 7 the steps back to 40 (2026-09-27)
         if a.eval_every and (step % a.eval_every == 0 or step == a.steps):
             run_eval(step)
-        if step % a.ckpt_every == 0 or step == a.steps:
-            save_ckpt(step)
 
 
 if __name__ == "__main__":
