@@ -91,7 +91,7 @@ def spend() -> float:
 
 
 def delete_vms(dry: bool) -> None:
-    for v in climb_vms():
+    for v in (climb_vms() or []):  # None = listing failed; nothing to delete this round
         log(f"delete {v['name']} ({v['zone']})")
         if not dry:
             sh("gcloud", "compute", "instances", "delete", v["name"], "--zone", v["zone"], "--project", PROJECT, "--quiet")
