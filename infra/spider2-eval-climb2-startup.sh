@@ -23,7 +23,7 @@ mkdir -p data/bird-minidev/dev_databases && gcloud storage rsync -r $B/bird/dev_
 export HOME=/root PATH=/root/.local/bin:$PATH
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q g++ >/dev/null 2>&1
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync 2>&1 | tail -1; uv pip install vllm ninja "transformers==5.17.0" 2>&1 | tail -1
+uv sync 2>&1 | tail -1; uv pip install "vllm==0.30.0" ninja "transformers==5.17.0" 2>&1 | tail -1
 export PATH=/opt/sq/.venv/bin:$PATH UV_NO_SYNC=1
 
 # adapters: every archived save, remapped to vLLM's layout (train.vllm_policy.export_adapter)
@@ -52,8 +52,20 @@ ADAPTERS=$(echo $LORA_ARGS | tr ' ' '\n' | cut -d= -f1); LAST=$(echo "$ADAPTERS"
 for BENCH in "spider2 lab/spider2_sqlite.json data/spider2-lite/localdb" "bird lab/bird_minidev.json data/bird-minidev/dev_databases"; do
   set -- $BENCH; BN=$1; TF=$2; DBD=$3
   [ -f "$TF" ] || { echo "SPIDER skip $BN: no $TF"; continue; }
-  run Qwen/Qwen3.5-4B 1,2,3 "$BN-base" "$TF" "$DBD"
-  for S in $ADAPTERS; do run "$S" 1 "$BN-$S" "$TF" "$DBD"; done
-  [ -n "$LAST" ] && run "$LAST" 2,3 "$BN-$LAST-s23" "$TF" "$DBD"
+  if [ "$BN" = spider2 ]; then  # pre-registered primary (soc 2026-09-27 10:35 + 11:10): same-job base × 8 seeds, step150 × 5
+    run Qwen/Qwen3.5-4B 1,2,3,4,5,6,7,8 "$BN-base" "$TF" "$DBD"
+    for S in $ADAPTERS; do run "$S" 1 "$BN-$S" "$TF" "$DBD"; done
+    [ -n "$LAST" ] && run "$LAST" 2,3,4,5 "$BN-$LAST-s2345" "$TF" "$DBD"
+  else
+    run Qwen/Qwen3.5-4B 1,2,3 "$BN-base" "$TF" "$DBD"
+    for S in $ADAPTERS; do run "$S" 1 "$BN-$S" "$TF" "$DBD"; done
+    [ -n "$LAST" ] && run "$LAST" 2,3 "$BN-$LAST-s23" "$TF" "$DBD"
+  fi
 done
+# diagnostic (cold review C1): the trainer's own rollout path (prior thinking kept in context, top_p 0.95) on the Spider 135,
+# base and the last adapter, 3 seeds each — separates "no transfer" from "context-format shift" if lab.run shows a null
+pkill -f "vllm serve" ; sleep 15
+uv run python infra/judge_inprocess.py --tasks lab/spider2_sqlite.json --db-dir data/spider2-lite/localdb --seeds 1,2,3 \
+  --adapter "adapters/$LAST" --tag spider2-inprocess > runs/spider2-inprocess.log 2>&1
+echo "SPIDER inprocess $(date -u +%H:%M:%SZ) $(grep -E '^METRIC' runs/spider2-inprocess.log | tr '\n' ' ')"; push
 echo "SPIDER done $(date -u +%H:%M:%SZ)" | tee >(gcloud storage cp - $OUT/DONE >/dev/null 2>&1)   # marker: bin/spot-relaunch stops on it
