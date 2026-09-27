@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # run as a script from infra/: the repo root must be importable
+# (2026-09-28 00:08: the judge's diagnostic died in 24 s with "No module named 'train'")
 
 HARNESS = Path(__file__).resolve().parent.parent / "harness"
 
