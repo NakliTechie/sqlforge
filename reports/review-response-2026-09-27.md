@@ -51,3 +51,17 @@ n = 1 training run (2 × 75 steps next time); named large-model comparator in th
 ## What the reviews cost
 codex ~$0 (subscription); DeepSeek 51k tokens ≈ $0.15; Opus subagent 232k tokens; space-bunny free tier. About 70 minutes
 of wall time in parallel with the climb.
+
+## Addendum, 2026-09-28 00:30 IST: the judge the reviews asked for
+The pre-registered analysis (`lab/judge_stats.py`, 30-DB cluster bootstrap primary) ran on the climb-2 checkpoint.
+- Spider 2.0-Lite SQLite (target, 135 tasks): step150 × 5 seeds vs base × 8 seeds, 0.141 vs 0.169, Δ −2.87 points,
+  CI [−6.16, +0.35], McNemar p 0.12. Success criterion NOT MET. Base-reachable stratum −10.7. Exploratory single-seed
+  checkpoint sweep: step80 +4.5 [+0.5, +8.2], step120 −4.4 [−8.9, −0.4].
+- BIRD Mini-Dev (in-family secondary, 496 tasks, 11 DBs): step150 × 3 vs base × 3, 0.514 → 0.595, Δ +8.10,
+  CI [+4.92, +11.64], McNemar p < 0.001, DB sign-flip p 0.002; base-never stratum 0 → 18.1; no-submit 0.031 → 0.009.
+- The in-process diagnostic (Opus C1, context parity) did not run: the script failed at import on the VM. Fixed in
+  `infra/judge_inprocess.py`; it needs one more judge life (≈45 min).
+Reading: Opus's forecast held. The pool (90 % BIRD) taught BIRD conventions; the gain did not transfer to analytical
+SQL, and the late checkpoints moved against the target. The checkpoint sweep is single-seed and unconfirmed; the
+morning decision is a 5-seed re-run of steps 60/80/100 plus the diagnostic in one life (≈$3), then climb 3 with
+off-family checkpoint selection (TPC-DS held-out dev set) and a TPC-majority pool. Full numbers: leg Experiment 12.
