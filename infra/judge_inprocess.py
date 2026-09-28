@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--max-turns", type=int, default=25)
     ap.add_argument("--vllm-mem", type=float, default=0.85)
     ap.add_argument("--tag", default="inprocess")
+    ap.add_argument("--arms", default="base,adapter", help="which arms to run; the base arm exists for Spider (2026-09-28), so an ablation judge runs adapter only")
     a = ap.parse_args()
     from transformers import AutoTokenizer  # tokenizer before the engine (config-registration order, see run_train.py)
     tok = AutoTokenizer.from_pretrained(a.model)
@@ -45,7 +46,7 @@ def main():
     seeds = [int(s) for s in a.seeds.split(",")]
     Path("runs").mkdir(exist_ok=True)
     per_task = Path(f"runs/{a.tag}-tasks.jsonl")
-    arms = [("base", None)] + ([("adapter", a.adapter)] if a.adapter else [])
+    arms = [(n, a.adapter if n == "adapter" else None) for n in a.arms.split(",") if n != "adapter" or a.adapter]
     for name, adapter in arms:
         if adapter:
             policy.set_adapter(str(Path(adapter).resolve()), 150)
