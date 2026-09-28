@@ -65,3 +65,17 @@ Reading: Opus's forecast held. The pool (90 % BIRD) taught BIRD conventions; the
 SQL, and the late checkpoints moved against the target. The checkpoint sweep is single-seed and unconfirmed; the
 morning decision is a 5-seed re-run of steps 60/80/100 plus the diagnostic in one life (≈$3), then climb 3 with
 off-family checkpoint selection (TPC-DS held-out dev set) and a TPC-majority pool. Full numbers: leg Experiment 12.
+
+## Addendum 2, 2026-09-28 13:10 IST: judge life 2 (Spider 5-seed sweep + the in-process diagnostic)
+- Spider, 5 seeds per checkpoint vs base × 8 (lab.run harness): step60 −1.54 [−4.16, +0.95], step80 +1.13 [−0.86, +2.74],
+  step100 +1.43 [−1.12, +4.28], step150 −2.87 [−6.16, +0.35]. The single-seed step-80 reading (+4.5) was seed noise.
+- Opus C1, measured: the same base weights score 0.269 under the trainer's rollout path vs 0.169 under lab.run, Δ +9.97
+  [+6.92, +13.81], McNemar p 0.001. The judge harness costs the base 10 points on the target.
+- In the trainer's harness, step150 scores 0.200 vs base 0.269: Δ −6.91 [−13.06, −1.56], McNemar p 0.001; base-reachable
+  stratum 61.6 → 35.0. Climb 2 made the policy worse on the target with the harness confound removed.
+- Reading: the in-family BIRD gain (+8.1) and the on-target loss are the same behaviour change — earlier, more frequent
+  submission (no-submit 0.375 → 0.193) that pays on BIRD's short questions and costs on analytical schemas. The commitment
+  reward (no-submit −1, codex/DeepSeek/Opus all flagged it) is the prime suspect; the 90 % BIRD pool the second.
+- Consequence for climb 3: judge in the trainer's harness (`infra/judge_inprocess.py`), pre-registered; and the reward change is
+  no longer optional. Cost of the two lives: $9.09; the first life lost 74 min to serial SQL timeouts in the lockstep loop,
+  now threaded (`train/rollout.py`, 72d3af8).
