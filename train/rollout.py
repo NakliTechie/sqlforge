@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from concurrent.futures import ThreadPoolExecutor
 import torch
 
 from harness.nudge import budget_note
@@ -127,8 +128,11 @@ def run_episodes(policy, episodes: list[Episode]) -> list[Trajectory]:
         if not live:
             return [e.tr for e in episodes]
         texts = policy.generate_batch([e.prompt() for e in live], [e.seed for e in live])
-        for e, text in zip(live, texts):
-            e.advance(text)
+        # Tool calls in parallel: sqlite3 releases the GIL while a statement runs, and one 60-s runaway query per episode,
+        # run serially, made a 405-episode lockstep turn take longer than an hour with the GPU idle (judge life 2,
+        # 2026-09-28 10:10, py-spy: main thread in lab/spider2.py run_sql). Episodes are independent objects.
+        with ThreadPoolExecutor(max_workers=64) as ex:
+            list(ex.map(lambda et: et[0].advance(et[1]), zip(live, texts)))
 
 
 def run_episode(policy, tok, system: str, question: str, tools: list, run_sql, *, max_turns: int,
