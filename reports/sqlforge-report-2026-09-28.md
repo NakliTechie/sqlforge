@@ -1,8 +1,8 @@
 # sqlforge — final report (2026-09-24 → 2026-09-28)
 
 **Tier: Tool.** One operator, one artifact: a GRPO training environment for multi-step analytical SQL plus the checkpoints it
-produced. Status at close: the thesis is **not supported** by two training climbs; one clean negative result, one measured
-harness gap, one pre-registered analysis method, one ablation (Experiment 13, section 6). GPU spend $92.75 + the ablation.
+produced. Status at close: the thesis is **not supported** by two training climbs and one ablation; one clean negative result, one measured
+harness gap (10 points), one pre-registered analysis method, and a located cause (the pool, not the reward). GPU spend $101.73.
 
 ## 1. Objective and success criterion
 
@@ -81,8 +81,8 @@ temperature-consistent log-probs, length normalisation, strict training verifier
 design. The reviews' central forecast — in-family gain that does not transfer — held.
 
 ## 5. Costs
-GPU ledger (`~/Code/infra/gcp/gpu-usage.csv`): 38 sqlforge lives, 52.40 GPU-hours, **$92.75** to 2026-09-28 13:05 IST (climb 1
-$23.60 + judge $7.07; pass@8 $6.36; climb 2 $33.44 + judge $7.12 + judge life 2 $9.09), plus the ablation (§6). Incidents: 9
+GPU ledger (`~/Code/infra/gcp/gpu-usage.csv`): 38 sqlforge lives, 52.40 GPU-hours, **$101.73** (climb 1
+$23.60 + judge $7.07; pass@8 $6.36; climb 2 $33.44 + judge $7.12 + judge life 2 $9.09; ablation 1 $8.98), 39 lives, 57.47 GPU-hours. Incidents: 9
 across both climbs (bucket paths, verifier path relocation, 32k context, duplicate VM on a failed listing, OOM at step 146,
 per-boot campaign paths, needless relaunch, serial-SQL stall, `..` in gs:// paths); each has a fix in the code and a line in the
 runbook. Cold reviews ≈ $0.15 (DeepSeek) + subscriptions.
@@ -94,13 +94,20 @@ harness (adapter arm × 3 seeds vs the existing base arm 0.269). Decision rule: 
 and indicts the pool; base-reachable ≤ −15 reproduces the collapse without the penalty and indicts the pool; in between is
 inconclusive. Launched 18:54 IST as `sqlforge-ablate1`, cap $12.
 
-**Result: pending.**
+**Result (2026-09-29 00:05 IST, 1 life, 304 min, $8.98).** Training side indistinguishable from climb 2's first 40 steps (train pass
+0.660 vs 0.658, no-submit 0.049 vs 0.040). Judge, trainer's harness, step40 × 3 vs base × 3: **0.205 vs 0.269**, Δ **−6.42**,
+CI [−11.03, −2.58], McNemar p 0.004; **base-reachable 61.6 → 42.9 (−18.6)**; base-never 0 → 3.1; no-submit 0.506 (base 0.375,
+climb-2 step150 0.193), turns 21.7. Against climb-2 step150 in the same harness: Δ +0.49 [−2.99, +4.46] — the same loss.
+**Decision rule (ii): the collapse reproduces without the commitment penalty. The pool, 90 % BIRD-train, is the cause; the reward
+is cleared.** The two runs fail by opposite routes — early wrong submissions with the penalty, explore-to-the-cap abstention
+without it — and lose the same tasks: the ones the base could already solve. Forty steps on BIRD-majority data are enough to
+displace the base's analytical-schema competence; 150 steps do not make it worse.
 
 ## 7. What would change next (not launched; project closed after the ablation)
 1. Judge in the trainer's harness, pre-registered, with a named large-model comparator in the same harness.
 2. Reward: drop the commitment penalty; per-trajectory length-normalised, temperature-consistent log-probs; strict verifier.
-3. Pool: TPC-DS/TPC-H majority with regenerated parameter variants; BIRD as a minority; checkpoint selection on an off-family
-   analytical dev set, never on the steering set.
+3. Pool: the ablation makes this the first-order change — TPC-DS/TPC-H majority with regenerated parameter variants, BIRD at most a
+   minority, and a held-out analytical dev set for checkpoint selection, never the steering set.
 4. Trainer throughput: threaded tool calls (done, `72d3af8`), incremental prompt-length tracking, parallel verification.
 5. Design: 2 × 75 steps with two seeds before any 150-step run.
 
@@ -113,5 +120,6 @@ inconclusive. Launched 18:54 IST as `sqlforge-ablate1`, cap $12.
 - Plan and lab notebook: `plan/lab/task-synth/2026-09-24-leg.md` (Experiments 1–13), `plan/soc.md`, `plan/pending.md`.
 
 ## 9. Close-out
-After the ablation: results mirrored from the bucket, adapters downloaded, GCP billing unlinked on every project (Chirag,
-2026-09-28 18:45: "then stop; when done, disconnect billing on all projects").
+Results mirrored under `runs/`. Adapters stay in `gs://sqlforge-bf3e24-smoke` (trimmed of optimizer states and re-downloadable
+databases, ≈ 4 GB ≈ $0.08/month) with billing linked; in December they move bucket-to-bucket to the new GCP account (procedure:
+`~/.claude/delegations/sqlforge/closeout.sh howto`). Chirag, 2026-09-28 21:05: nothing pulled to the laptop; revisit billing in December.
