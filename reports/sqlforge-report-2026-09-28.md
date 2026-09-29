@@ -112,14 +112,13 @@ displace the base's analytical-schema competence; 150 steps do not make it worse
 5. Design: 2 × 75 steps with two seeds before any 150-step run.
 
 ## 8. Artifacts
-- Code: `NakliTechie/sqlforge` main (`train/`, `lab/`, `infra/`, `harness/`).
-- Results mirrors: `runs/spider2-eval/` (climb 1 judge), `runs/spider2-eval2/`, `runs/spider2-eval2b/` (climb 2 judge and
-  diagnostic), `runs/passk{,2,3}/`, `runs/climb2/`, `runs/ablate1/`.
-- Adapters: `gs://sqlforge-bf3e24-smoke/climb2/saves/step{20..150}`, `ablate1/ckpt/step40` — mirrored locally before billing
-  is disconnected (section 9).
-- Plan and lab notebook: `plan/lab/task-synth/2026-09-24-leg.md` (Experiments 1–13), `plan/soc.md`, `plan/pending.md`.
+- Code: [github.com/NakliTechie/sqlforge](https://github.com/NakliTechie/sqlforge) (public, MIT).
+- Adapters, judge results with per-episode transcripts, training logs, this report and the reviews:
+  [huggingface.co/naklitechie/sqlforge](https://huggingface.co/naklitechie/sqlforge) (public, MIT; 21 LoRA adapters).
+- Results mirrors in the repo under `runs/` (gitignored) and a local archive of the bucket (`~/Data/gcp-archive/sqlforge/`).
+- Lab notebook: `plan/lab/task-synth/2026-09-24-leg.md` (Experiments 1–13), `plan/history.md`, `plan/pending.md` (private).
 
-## 9. Close-out
-Results mirrored under `runs/`. Adapters stay in `gs://sqlforge-bf3e24-smoke` (trimmed of optimizer states and re-downloadable
-databases, ≈ 4 GB ≈ $0.08/month) with billing linked; in December they move bucket-to-bucket to the new GCP account (procedure:
-`~/.claude/delegations/sqlforge/closeout.sh howto`). Chirag, 2026-09-28 21:05: nothing pulled to the laptop; revisit billing in December.
+## 9. Close-out (2026-09-29)
+Artifacts published to Hugging Face and verified by re-download; the GCP bucket deleted, billing unlinked and the project
+scheduled for deletion; the GitHub repository made public with this report as its founding document. Chirag, 2026-09-29:
+"put it on hf cloud as an open repo, then clear GCP of sqlforge, then flip open the sqlforge repo."
