@@ -1,7 +1,7 @@
 [project]
 name = "sqlforge"
 version = "0.1.0"
-description = "Add your description here"
+description = "GRPO environment for multi-step analytical SQL on Qwen3.5-4B, and the negative result it produced"
 requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.15.0",

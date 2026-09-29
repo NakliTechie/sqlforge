@@ -6,7 +6,7 @@
 
 The database split prevents schema memorization. It does not separate annotation style, evidence hints, or task construction conventions.
 
-evidence: [review brief:48-63](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:48), [BIRD prompt construction:129-149](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:129)
+evidence: [review brief:48-63](<repo>/reports/review-brief-2026-09-27.md:48), [BIRD prompt construction:129-149](<repo>/lab/spider2.py:129)
 
 mitigation: Add a contemporaneous TPC-DS or withheld non-BIRD steering set. Never select checkpoints solely through BIRD Mini-Dev.
 
@@ -20,7 +20,7 @@ Training combines multiple tool results into one message. The external OpenAI ha
 
 Only the training runner applies the 32K context guard. These differences can alter trajectories despite a shared turn parser.
 
-evidence: [train/vllm_policy.py:36-64](/Users/chiragpatnaik/Code/sqlforge/train/vllm_policy.py:36), [train/rollout.py:89-125](/Users/chiragpatnaik/Code/sqlforge/train/rollout.py:89), [harness/loop.py:61-75](/Users/chiragpatnaik/Code/sqlforge/harness/loop.py:61), [harness/loop.py:145-152](/Users/chiragpatnaik/Code/sqlforge/harness/loop.py:145)
+evidence: [train/vllm_policy.py:36-64](<repo>/train/vllm_policy.py:36), [train/rollout.py:89-125](<repo>/train/rollout.py:89), [harness/loop.py:61-75](<repo>/harness/loop.py:61), [harness/loop.py:145-152](<repo>/harness/loop.py:145)
 
 mitigation: Use one rollout implementation and one explicit sampling configuration for pool measurement, training evaluation, and final evaluation.
 
@@ -32,7 +32,7 @@ The first step-50 evaluation crashed on a 32,769-token prompt. The rerun convert
 
 The repository also states that batched requests need not reproduce serial outputs. Changed batch membership can therefore change later generations.
 
-evidence: [plan/soc.md:3-5](/Users/chiragpatnaik/Code/sqlforge/plan/soc.md:3), [train/rollout.py:114-131](/Users/chiragpatnaik/Code/sqlforge/train/rollout.py:114), [lab/run.py:47-49](/Users/chiragpatnaik/Code/sqlforge/lab/run.py:47)
+evidence: [plan/soc.md:3-5](<repo>/plan/soc.md:3), [train/rollout.py:114-131](<repo>/train/rollout.py:114), [lab/run.py:47-49](<repo>/lab/run.py:47)
 
 mitigation: Rerun step 0, step 25, and step 50 under the final code and identical batching.
 
@@ -42,7 +42,7 @@ mitigation: Rerun step 0, step 25, and step 50 under the final code and identica
 
 Three evaluation seeds quantify rollout variation around one training run. They do not quantify training instability.
 
-evidence: [plan leg:397-402](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:397), [train/run_train.py:124-135](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:124)
+evidence: [plan leg:397-402](<repo>/plan/lab/task-synth/2026-09-24-leg.md:397), [train/run_train.py:124-135](<repo>/train/run_train.py:124)
 
 [RISK inferred]
 
@@ -50,7 +50,7 @@ evidence: [plan leg:397-402](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-sy
 
 A policy can inspect values through `run_sql`, then submit database-specific predicates or constants. That behavior receives full reward.
 
-evidence: [harness/system.md:3-7](/Users/chiragpatnaik/Code/sqlforge/harness/system.md:3), [lab/spider2.py:59-71](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:59), [train/run_train.py:47-64](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:47)
+evidence: [harness/system.md:3-7](<repo>/harness/system.md:3), [lab/spider2.py:59-71](<repo>/lab/spider2.py:59), [train/run_train.py:47-64](<repo>/train/run_train.py:47)
 
 mitigation: Train against hidden database variants. Otherwise, change the prompt and classify the reward as snapshot accuracy.
 
@@ -66,7 +66,7 @@ Treating three seeds as units gives \(t=2.16\), two-sided \(p=0.163\). Its illus
 
 That calculation is still invalid for inference because seeds are not the population unit.
 
-evidence: [review brief:53-57](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:53), counts are 34/44/45 versus 51/51/48 from the reported rates.
+evidence: [review brief:53-57](<repo>/reports/review-brief-2026-09-27.md:53), counts are 34/44/45 versus 51/51/48 from the reported rates.
 
 mitigation: Use paired task outcomes and cluster resampling by database.
 
@@ -76,7 +76,7 @@ mitigation: Use paired task outcomes and cluster resampling by database.
 
 The largest database contributes 18 tasks. Database-specific difficulty therefore affects the aggregate.
 
-evidence: read-only count from [lab/bird_challenging.json](/Users/chiragpatnaik/Code/sqlforge/lab/bird_challenging.json): 101 tasks across 11 schemas, with 18 from `toxicology`.
+evidence: read-only count from [lab/bird_challenging.json](<repo>/lab/bird_challenging.json): 101 tasks across 11 schemas, with 18 from `toxicology`.
 
 mitigation: Report database-cluster bootstrap intervals and per-database changes. Also report task-level paired wins, losses, and ties.
 
@@ -86,7 +86,7 @@ mitigation: Report database-cluster bootstrap intervals and per-database changes
 
 A monotone three-point curve does not correct this repeated-selection bias. More evaluations increase the chance of selecting favorable noise.
 
-evidence: [review brief:50-57](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:50), [plan leg:409-419](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:409)
+evidence: [review brief:50-57](<repo>/reports/review-brief-2026-09-27.md:50), [plan leg:409-419](<repo>/plan/lab/task-synth/2026-09-24-leg.md:409)
 
 [RISK inferred]
 
@@ -96,7 +96,7 @@ My read-only count finds 122 of 521 tasks at 7/8. Another 79 sit at 1/8.
 
 Thus, 201 tasks sit one outcome from exclusion. Their measured difficulty contains substantial winner’s-curse bias.
 
-evidence: [pool builder:34-43](/Users/chiragpatnaik/Code/sqlforge/lab/pool_from_passk.py:34), read-only counts from [lab/climb2_pool.json](/Users/chiragpatnaik/Code/sqlforge/lab/climb2_pool.json)
+evidence: [pool builder:34-43](<repo>/lab/pool_from_passk.py:34), read-only counts from [lab/climb2_pool.json](<repo>/lab/climb2_pool.json)
 
 [RISK inferred]
 
@@ -104,7 +104,7 @@ evidence: [pool builder:34-43](/Users/chiragpatnaik/Code/sqlforge/lab/pool_from_
 
 Only a checkpoint fixed before opening Spider can support a primary claim. Other checkpoint results must remain exploratory.
 
-evidence: [review brief:50-51](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:50)
+evidence: [review brief:50-51](<repo>/reports/review-brief-2026-09-27.md:50)
 
 mitigation: Declare step 150 as the sole primary checkpoint before evaluation. Apply multiplicity correction to any checkpoint sweep.
 
@@ -118,7 +118,7 @@ The gap from no-submit to wrong-submit is 1. The nominal gap from wrong-submit t
 
 Length shaping can reduce the second gap below 1. This reward therefore trains commitment at least as strongly as correctness.
 
-evidence: [train/grpo.py:20-31](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:20), [climb-1 behavior:270-278](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:270)
+evidence: [train/grpo.py:20-31](<repo>/train/grpo.py:20), [climb-1 behavior:270-278](<repo>/plan/lab/task-synth/2026-09-24-leg.md:270)
 
 mitigation: Reduce the no-submit penalty. Measure correct, wrong-submit, and no-submit transitions separately.
 
@@ -128,7 +128,7 @@ mitigation: Reduce the no-submit penalty. Measure correct, wrong-submit, and no-
 
 The dynamic sampler also regards them as informative because `outcome_class` preserves −1 versus 0.
 
-evidence: [train/grpo.py:34-46](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:34), [train/run_train.py:257-281](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:257)
+evidence: [train/grpo.py:34-46](<repo>/train/grpo.py:34), [train/run_train.py:257-281](<repo>/train/run_train.py:257)
 
 [RISK inferred]
 
@@ -136,7 +136,7 @@ evidence: [train/grpo.py:34-46](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py
 
 Re-admission resets the streak without estimating current-policy pass rate. It does not return the task to the learnable band.
 
-evidence: [train/run_train.py:244-276](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:244), [review brief:73-76](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:73)
+evidence: [train/run_train.py:244-276](<repo>/train/run_train.py:244), [review brief:73-76](<repo>/reports/review-brief-2026-09-27.md:73)
 
 [RISK inferred]
 
@@ -144,7 +144,7 @@ evidence: [train/run_train.py:244-276](/Users/chiragpatnaik/Code/sqlforge/train/
 
 The objective averages token log-probability within each trajectory. It does not diagnose policy collapse, repetition, or excessive exploration.
 
-evidence: [train/grpo.py:1-8](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:1), [train/grpo.py:54-84](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:54), [train/run_train.py:116-146](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:116)
+evidence: [train/grpo.py:1-8](<repo>/train/grpo.py:1), [train/grpo.py:54-84](<repo>/train/grpo.py:54), [train/run_train.py:116-146](<repo>/train/run_train.py:116)
 
 [RISK inferred]
 
@@ -152,7 +152,7 @@ evidence: [train/grpo.py:1-8](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:1
 
 A query can therefore pass by matching only an arbitrary 5,000-row prefix. The builder creates BIRD golds through that same truncating function.
 
-evidence: [lab/spider2.py:39-56](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:39), [lab/spider2.py:129-149](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:129)
+evidence: [lab/spider2.py:39-56](<repo>/lab/spider2.py:39), [lab/spider2.py:129-149](<repo>/lab/spider2.py:129)
 
 mitigation: Reject results exceeding the cap. Alternatively, stream and hash the complete multiset.
 
@@ -164,7 +164,7 @@ mitigation: Reject results exceeding the cap. Alternatively, stream and hash the
 
 These official rules measure benchmark compatibility. They do not establish semantic SQL equivalence.
 
-evidence: [lab/verify.py:125-160](/Users/chiragpatnaik/Code/sqlforge/lab/verify.py:125), [lab/spider2.py:59-90](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:59)
+evidence: [lab/verify.py:125-160](<repo>/lab/verify.py:125), [lab/spider2.py:59-90](<repo>/lab/spider2.py:59)
 
 mitigation: Add strict column cardinality and one-to-one matching as a secondary metric. Audit all newly passing tasks manually.
 
@@ -174,7 +174,7 @@ mitigation: Add strict column cardinality and one-to-one matching as a secondary
 
 The climb therefore emphasizes BIRD conventions rather than the stated analytical-SQL target.
 
-evidence: [review brief:48-49](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:48), read-only count from [lab/climb2_pool.json](/Users/chiragpatnaik/Code/sqlforge/lab/climb2_pool.json)
+evidence: [review brief:48-49](<repo>/reports/review-brief-2026-09-27.md:48), read-only count from [lab/climb2_pool.json](<repo>/lab/climb2_pool.json)
 
 ## What Spider can and cannot establish
 
@@ -184,7 +184,7 @@ A predeclared step-150 comparison can establish better expected execution-match 
 
 That claim requires paired task-level analysis with database clustering. Its interval must exclude zero.
 
-evidence: [review brief:9-12](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:9), [review brief:77-78](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:77)
+evidence: [review brief:9-12](<repo>/reports/review-brief-2026-09-27.md:9), [review brief:77-78](<repo>/reports/review-brief-2026-09-27.md:77)
 
 [RISK inferred]
 
@@ -192,7 +192,7 @@ evidence: [review brief:9-12](/Users/chiragpatnaik/Code/sqlforge/reports/review-
 
 The brief specifies no large-model comparator, minimum effect, or uncertainty threshold.
 
-evidence: [review brief:9-12](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:9)
+evidence: [review brief:9-12](<repo>/reports/review-brief-2026-09-27.md:9)
 
 mitigation: Evaluate a named large model in the identical harness. Predeclare a nontrivial equivalence or superiority margin.
 
@@ -202,7 +202,7 @@ mitigation: Evaluate a named large model in the identical harness. Predeclare a 
 
 The local validation already records only 16 passing gold queries among 24 available gold-SQL tasks.
 
-evidence: [lab/spider2.py:1-6](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:1), [plan/soc.md:27](/Users/chiragpatnaik/Code/sqlforge/plan/soc.md:27), [prior-art report:50-54](/Users/chiragpatnaik/Code/sqlforge/reports/RL%20for%20agentic%20text%20to%20SQL.md:50)
+evidence: [lab/spider2.py:1-6](<repo>/lab/spider2.py:1), [plan/soc.md:27](<repo>/plan/soc.md:27), [prior-art report:50-54](<repo>/reports/RL%20for%20agentic%20text%20to%20SQL.md:50)
 
 [RISK inferred]
 
@@ -210,7 +210,7 @@ evidence: [lab/spider2.py:1-6](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py
 
 The evaluation covers 135 local SQLite tasks from 30 databases.
 
-evidence: [review brief:9-12](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:9), [lab/spider2.py:1-12](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:1)
+evidence: [review brief:9-12](<repo>/reports/review-brief-2026-09-27.md:9), [lab/spider2.py:1-12](<repo>/lab/spider2.py:1)
 
 [RISK inferred]
 
@@ -220,7 +220,7 @@ I would require at least +10 percentage points and a database-clustered 95% inte
 
 I would also require three independent training runs. Evaluation seeds cannot replace training replication.
 
-evidence: the current base is 0.165, while reported rollout variation spans five tasks per seed at [review brief:77-78](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:77).
+evidence: the current base is 0.165, while reported rollout variation spans five tasks per seed at [review brief:77-78](<repo>/reports/review-brief-2026-09-27.md:77).
 
 mitigation: Freeze this criterion before reading Spider checkpoint results.
 
@@ -234,7 +234,7 @@ Run base and adapted policies on identical paired seeds. Use database-cluster bo
 
 verifier: The preregistration names the checkpoint, seeds, margin, clustering unit, and multiplicity treatment before evaluation.
 
-evidence: [current multi-checkpoint plan:50-51](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:50), [harness mismatches cited above](/Users/chiragpatnaik/Code/sqlforge/train/vllm_policy.py:36)
+evidence: [current multi-checkpoint plan:50-51](<repo>/reports/review-brief-2026-09-27.md:50), [harness mismatches cited above](<repo>/train/vllm_policy.py:36)
 
 [PLAN inferred]
 
@@ -244,7 +244,7 @@ Use hidden database variants, strict one-to-one columns, complete-result hashing
 
 verifier: Every rewarded query passes at least three hidden instances and a strict secondary comparator.
 
-evidence: [fixed-database verifier:59-90](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:59), [5,000-row truncation:39-56](/Users/chiragpatnaik/Code/sqlforge/lab/spider2.py:39), [system-prompt mismatch:5](/Users/chiragpatnaik/Code/sqlforge/harness/system.md:5)
+evidence: [fixed-database verifier:59-90](<repo>/lab/spider2.py:59), [5,000-row truncation:39-56](<repo>/lab/spider2.py:39), [system-prompt mismatch:5](<repo>/harness/system.md:5)
 
 [PLAN inferred]
 
@@ -256,7 +256,7 @@ Run isolated reward and horizon ablations before another 150-step climb.
 
 verifier: Each arm uses the same tasks, rollout budget, evaluation seeds, and stopping rule.
 
-evidence: [current resting logic:244-281](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:244), [current reward:20-46](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:20), [prior-art recommendation:101-117](/Users/chiragpatnaik/Code/sqlforge/reports/RL%20for%20agentic%20text%20to%20SQL.md:101)
+evidence: [current resting logic:244-281](<repo>/train/run_train.py:244), [current reward:20-46](<repo>/train/grpo.py:20), [prior-art recommendation:101-117](<repo>/reports/RL%20for%20agentic%20text%20to%20SQL.md:101)
 
 ## Things the brief got wrong
 
@@ -266,7 +266,7 @@ evidence: [current resting logic:244-281](/Users/chiragpatnaik/Code/sqlforge/tra
 
 The illustrative paired-seed test gives \(p=0.163\). The proper database-clustered task analysis remains absent.
 
-evidence: [review brief:53-57](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:53)
+evidence: [review brief:53-57](<repo>/reports/review-brief-2026-09-27.md:53)
 
 [RISK inferred]
 
@@ -276,7 +276,7 @@ The observations are 10.9 to 13.5 turns, flat no-submit, doubled wall time, and 
 
 These numbers also fit verbosity, repeated failed queries, or delayed submission.
 
-evidence: [plan leg:415-419](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:415), [plan/soc.md:5](/Users/chiragpatnaik/Code/sqlforge/plan/soc.md:5)
+evidence: [plan leg:415-419](<repo>/plan/lab/task-synth/2026-09-24-leg.md:415), [plan/soc.md:5](<repo>/plan/soc.md:5)
 
 [RISK inferred]
 
@@ -286,7 +286,7 @@ TPC-DS contributes 72 tasks from one generated benchmark database. Spider contai
 
 Matching pass rate and turns does not establish matching SQL structures, language, schemas, or failure modes.
 
-evidence: [review brief:37-45](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:37), [plan leg:367-376](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:367)
+evidence: [review brief:37-45](<repo>/reports/review-brief-2026-09-27.md:37), [plan leg:367-376](<repo>/plan/lab/task-synth/2026-09-24-leg.md:367)
 
 [RISK inferred]
 
@@ -296,7 +296,7 @@ A 0/8 task can have nonzero base success probability. Training can also create b
 
 Calling 55 reachable tasks a ceiling confuses observed support with a trained-policy limit.
 
-evidence: [plan leg:330-347](/Users/chiragpatnaik/Code/sqlforge/plan/lab/task-synth/2026-09-24-leg.md:330)
+evidence: [plan leg:330-347](<repo>/plan/lab/task-synth/2026-09-24-leg.md:330)
 
 mitigation: Report pass@8 as a pool diagnostic only. Never use it as an attainable-accuracy bound.
 
@@ -308,7 +308,7 @@ The cited audit concerns 52.8% of Mini-Dev. A separate audit found 61% of a samp
 
 Neither number identifies which selected tasks have wrong golds. A 0/8 outcome also does not diagnose annotation error.
 
-evidence: [prior-art report:30-32](/Users/chiragpatnaik/Code/sqlforge/reports/RL%20for%20agentic%20text%20to%20SQL.md:30), [review brief:41-45](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:41)
+evidence: [prior-art report:30-32](<repo>/reports/RL%20for%20agentic%20text%20to%20SQL.md:30), [review brief:41-45](<repo>/reports/review-brief-2026-09-27.md:41)
 
 [RISK inferred]
 
@@ -318,7 +318,7 @@ The code performs one on-policy update, where the initial importance ratio equal
 
 The material risks are unrestricted drift, stale sampling, fixed-snapshot rewards, and unmonitored entropy.
 
-evidence: [train/grpo.py:72-84](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:72), [review brief:71-76](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:71)
+evidence: [train/grpo.py:72-84](<repo>/train/grpo.py:72), [review brief:71-76](<repo>/reports/review-brief-2026-09-27.md:71)
 
 [RISK inferred]
 
@@ -328,4 +328,4 @@ Five retained groups per step only show reward-class variance. Wrong-submit vers
 
 The brief therefore mistakes gradient availability for evidence of capability improvement.
 
-evidence: [review brief:52](/Users/chiragpatnaik/Code/sqlforge/reports/review-brief-2026-09-27.md:52), [train/run_train.py:257-281](/Users/chiragpatnaik/Code/sqlforge/train/run_train.py:257), [train/grpo.py:34-46](/Users/chiragpatnaik/Code/sqlforge/train/grpo.py:34)
+evidence: [review brief:52](<repo>/reports/review-brief-2026-09-27.md:52), [train/run_train.py:257-281](<repo>/train/run_train.py:257), [train/grpo.py:34-46](<repo>/train/grpo.py:34)
