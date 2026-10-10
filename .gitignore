@@ -12,3 +12,6 @@ runs/
 .venv/
 checkpoints/
 data/
+# Promo output (regenerable; /windup-nt sweeps it)
+/marketing
+/brag-output*
